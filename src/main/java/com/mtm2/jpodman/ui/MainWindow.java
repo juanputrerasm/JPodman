@@ -2,6 +2,7 @@ package com.mtm2.jpodman.ui;
 
 import com.mtm2.jpodman.AppPreferences;
 import com.mtm2.jpodman.GameInstall;
+import com.mtm2.jpodman.MonsterVersionInfo;
 import com.mtm2.jpodman.PodListItem;
 import com.mtm2.jpodman.PodMountList;
 import com.mtm2.jpodman.io.MonsterExeDetector;
@@ -29,6 +30,9 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingWorker;
+import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Desktop;
@@ -45,6 +49,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /** Main Swing window for managing mounted and available POD files. */
 public final class MainWindow extends JFrame {
@@ -59,8 +64,12 @@ public final class MainWindow extends JFrame {
 
     private final DefaultListModel<PodListItem> mountedModel = new DefaultListModel<>();
     private final DefaultListModel<PodListItem> availableModel = new DefaultListModel<>();
+    private List<PodListItem> allMountedItems = List.of();
+    private List<PodListItem> allAvailableItems = List.of();
     private final JList<PodListItem> mountedList = new JList<>(mountedModel);
     private final JList<PodListItem> availableList = new JList<>(availableModel);
+    private final JTextField mountedFilterField = new JTextField();
+    private final JTextField availableFilterField = new JTextField();
     private final JLabel statusLabel = new JLabel("Ready");
     private final JLabel mountedCountLabel = new JLabel();
     private final JLabel availableCountLabel = new JLabel();
@@ -78,6 +87,8 @@ public final class MainWindow extends JFrame {
         ListCellRenderer<? super PodListItem> renderer = new PodListItemRenderer();
         mountedList.setCellRenderer(renderer);
         availableList.setCellRenderer(renderer);
+        installFilterListener(mountedFilterField, this::applyMountedFilter);
+        installFilterListener(availableFilterField, this::applyAvailableFilter);
         mountedList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -99,15 +110,66 @@ public final class MainWindow extends JFrame {
         add(buildContent(), BorderLayout.CENTER);
         add(buildStatusBar(), BorderLayout.SOUTH);
 
-        loadPodIni(gameInstall.podIniPath(), false);
-        refreshAvailablePods();
-        updateStatus("Opened " + gameRoot);
+        updateStatus("Ready");
         pack();
     }
 
+    public void initializeAfterStartup(Runnable onLoaded) {
+        updateStatus("Loading POD lists...");
+        new SwingWorker<StartupLoadResult, Void>() {
+            @Override
+            protected StartupLoadResult doInBackground() {
+                return loadStartupData();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    StartupLoadResult result = get();
+                    mountedPods = result.mountedPods();
+                    setMountedItemsFromPaths(mountedPods.entries());
+                    setAvailableItemsFromPaths(result.availablePods());
+                    updateStatus(result.statusMessage());
+                    if (result.error() != null) {
+                        JOptionPane.showMessageDialog(
+                                MainWindow.this,
+                                "pod.ini could not be read. Starting with an empty list:\n" + result.error().getMessage(),
+                                "JPodman",
+                                JOptionPane.WARNING_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    mountedPods = PodMountList.empty();
+                    setMountedItemsFromPaths(List.of());
+                    setAvailableItemsFromPaths(List.of());
+                    updateStatus("Started with empty POD lists.");
+                } finally {
+                    if (onLoaded != null) {
+                        onLoaded.run();
+                    }
+                }
+            }
+        }.execute();
+    }
+
+    private StartupLoadResult loadStartupData() {
+        PodMountList loaded = PodMountList.empty();
+        IOException error = null;
+        String status = Files.exists(gameInstall.podIniPath())
+                ? "Opened " + gameInstall.podIniPath()
+                : "No pod.ini found; a new one will be created on save.";
+        try {
+            loaded = PodIniReader.read(gameInstall.podIniPath(), preferences.podLimit());
+        } catch (IOException ex) {
+            error = ex;
+            status = "Started with an empty POD list.";
+        }
+        List<String> available = PodDiscoveryService.discover(gameRoot, preferences.extraPodFolders(), preferences.folderDepth(), loaded);
+        return new StartupLoadResult(loaded, available, status, error);
+    }
+
     private JPanel buildContent() {
-        JPanel mountedPanel = listPanel("Mounted PODs", mountedList, mountedCountLabel);
-        JPanel availablePanel = listPanel("Available PODs", availableList, availableCountLabel);
+        JPanel mountedPanel = listPanel("Mounted PODs", mountedList, mountedCountLabel, mountedFilterField);
+        JPanel availablePanel = listPanel("Available PODs", availableList, availableCountLabel, availableFilterField);
 
         JButton add = new JButton("<< Add");
         add.addActionListener(e -> addSelectedAvailable());
@@ -159,11 +221,16 @@ public final class MainWindow extends JFrame {
         return content;
     }
 
-    private JPanel listPanel(String title, JList<PodListItem> list, JLabel countLabel) {
+    private JPanel listPanel(String title, JList<PodListItem> list, JLabel countLabel, JTextField filterField) {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
         panel.setBorder(BorderFactory.createTitledBorder(title));
         panel.setMinimumSize(LIST_PANEL_MINIMUM_SIZE);
         panel.setPreferredSize(LIST_PANEL_MINIMUM_SIZE);
+        JPanel filterPanel = new JPanel(new BorderLayout(4, 0));
+        filterPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        filterPanel.add(new JLabel("Filter:"), BorderLayout.WEST);
+        filterPanel.add(filterField, BorderLayout.CENTER);
+        panel.add(filterPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(list), BorderLayout.CENTER);
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT));
         footer.add(countLabel);
@@ -305,11 +372,35 @@ public final class MainWindow extends JFrame {
             JOptionPane.showMessageDialog(this, "No monster.exe or monsterx.exe was found in the current folder.", "JPodman", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        syncModelToMounted();
+        if (!confirmVersionSuggestedLimit()) {
+            return;
+        }
         try {
             Desktop.getDesktop().open(gameInstall.executable().get().toFile());
         } catch (IOException | UnsupportedOperationException ex) {
             JOptionPane.showMessageDialog(this, "The game could not be launched:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
         }
+    }
+
+    private boolean confirmVersionSuggestedLimit() {
+        Optional<Integer> warningLimit = gameInstall.warningPodLimit();
+        if (warningLimit.isEmpty() || mountedPods.size() <= warningLimit.get()) {
+            return true;
+        }
+        String source = gameInstall.monsterIniPodLimit().isPresent()
+                ? "system/monster.ini podLimit"
+                : gameInstall.versionInfo().map(MonsterVersionInfo::displayLabel).orElse("detected game version");
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                "Detected " + source + ".\n"
+                        + "This setup reports about " + warningLimit.get() + " mounted PODs, "
+                        + "but your current list has " + mountedPods.size() + ".\n\n"
+                        + "JPodman will not change your configured limit. Launch anyway?",
+                "POD Limit Warning",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        return result == JOptionPane.OK_OPTION;
     }
 
     private void showPreferences() {
@@ -377,12 +468,8 @@ public final class MainWindow extends JFrame {
 
     private void refreshAvailablePods() {
         syncModelToMounted();
-        availableModel.clear();
         List<String> discovered = PodDiscoveryService.discover(gameRoot, preferences.extraPodFolders(), preferences.folderDepth(), mountedPods);
-        for (String entry : discovered) {
-            availableModel.addElement(PodListItem.plain(entry));
-        }
-        decorateModel(availableModel);
+        setAvailableItemsFromPaths(discovered);
         updateCounts();
         updateStatus("Refreshed available PODs");
     }
@@ -443,40 +530,66 @@ public final class MainWindow extends JFrame {
     }
 
     private void moveMounted(int direction) {
-        int index = mountedList.getSelectedIndex();
-        int target = index + direction;
-        if (index < 0 || target < 0 || target >= mountedModel.size()) {
+        PodListItem selected = mountedList.getSelectedValue();
+        if (selected == null) {
             return;
         }
-        PodListItem value = mountedModel.remove(index);
-        mountedModel.add(target, value);
-        mountedList.setSelectedIndex(target);
+        int index = indexOfMountPath(allMountedItems, selected.mountPath());
+        int target = index + direction;
+        if (index < 0 || target < 0 || target >= allMountedItems.size()) {
+            return;
+        }
+        List<PodListItem> reordered = new ArrayList<>(allMountedItems);
+        PodListItem value = reordered.remove(index);
+        reordered.add(target, value);
+        allMountedItems = List.copyOf(reordered);
+        applyMountedFilter();
+        selectMountPath(selected.mountPath());
         syncModelToMounted();
         updateCounts();
     }
 
     private void reloadMountedModel() {
-        mountedModel.clear();
-        for (String entry : mountedPods.entries()) {
-            mountedModel.addElement(PodListItem.plain(entry));
-        }
-        decorateModel(mountedModel);
+        setMountedItemsFromPaths(mountedPods.entries());
         updateCounts();
     }
 
     private void syncModelToMounted() {
         PodMountList updated = PodMountList.empty();
-        for (int i = 0; i < mountedModel.size(); i++) {
-            updated.add(mountedModel.get(i).mountPath(), preferences.podLimit());
+        for (PodListItem item : allMountedItems) {
+            updated.add(item.mountPath(), preferences.podLimit());
         }
         mountedPods = updated;
     }
 
-    private void decorateModel(DefaultListModel<PodListItem> model) {
-        List<PodListItem> snapshot = new ArrayList<>();
-        for (int i = 0; i < model.size(); i++) {
-            snapshot.add(model.get(i));
+    private void setMountedItemsFromPaths(List<String> paths) {
+        allMountedItems = plainItems(paths);
+        applyMountedFilter();
+        decorateItems(allMountedItems, items -> {
+            allMountedItems = items;
+            applyMountedFilter();
+        });
+    }
+
+    private void setAvailableItemsFromPaths(List<String> paths) {
+        allAvailableItems = plainItems(paths);
+        applyAvailableFilter();
+        decorateItems(allAvailableItems, items -> {
+            allAvailableItems = items;
+            applyAvailableFilter();
+        });
+    }
+
+    private List<PodListItem> plainItems(List<String> paths) {
+        List<PodListItem> items = new ArrayList<>();
+        for (String path : paths) {
+            items.add(PodListItem.plain(path));
         }
+        return List.copyOf(items);
+    }
+
+    private void decorateItems(List<PodListItem> source, java.util.function.Consumer<List<PodListItem>> onDone) {
+        List<PodListItem> snapshot = List.copyOf(source);
         new SwingWorker<List<PodListItem>, Void>() {
             @Override
             protected List<PodListItem> doInBackground() {
@@ -491,22 +604,53 @@ public final class MainWindow extends JFrame {
             protected void done() {
                 try {
                     List<PodListItem> decorated = get();
-                    if (model.size() != snapshot.size()) {
-                        return;
-                    }
-                    for (int i = 0; i < snapshot.size(); i++) {
-                        if (!model.get(i).mountPath().equals(snapshot.get(i).mountPath())) {
-                            return;
-                        }
-                    }
-                    for (int i = 0; i < decorated.size(); i++) {
-                        model.set(i, decorated.get(i));
-                    }
+                    onDone.accept(List.copyOf(decorated));
                 } catch (Exception ignored) {
                     // Plain labels are already visible; metadata is best effort.
                 }
             }
         }.execute();
+    }
+
+    private void applyMountedFilter() {
+        applyFilter(allMountedItems, mountedModel, mountedFilterField.getText());
+        updateCounts();
+    }
+
+    private void applyAvailableFilter() {
+        applyFilter(allAvailableItems, availableModel, availableFilterField.getText());
+        updateCounts();
+    }
+
+    private void applyFilter(List<PodListItem> source, DefaultListModel<PodListItem> model, String filterText) {
+        String filter = filterText == null ? "" : filterText.trim().toLowerCase(Locale.ROOT);
+        model.clear();
+        for (PodListItem item : source) {
+            if (filter.isEmpty()
+                    || item.mountPath().toLowerCase(Locale.ROOT).contains(filter)
+                    || item.displayLabel().toLowerCase(Locale.ROOT).contains(filter)) {
+                model.addElement(item);
+            }
+        }
+    }
+
+    private void installFilterListener(JTextField field, Runnable action) {
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                action.run();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                action.run();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                action.run();
+            }
+        });
     }
 
     private void trimMountedToLimit() {
@@ -523,14 +667,45 @@ public final class MainWindow extends JFrame {
     }
 
     private void updateCounts() {
-        mountedCountLabel.setText(mountedModel.size() + " of " + preferences.podLimit());
-        availableCountLabel.setText(Integer.toString(availableModel.size()));
-        gameLabel.setText(gameInstall.versionLabel());
+        mountedCountLabel.setText(allMountedItems.size() + " of " + preferences.podLimit()
+                + filteredSuffix(mountedModel.size(), allMountedItems.size()));
+        availableCountLabel.setText(Integer.toString(allAvailableItems.size())
+                + filteredSuffix(availableModel.size(), allAvailableItems.size()));
+        gameLabel.setText(gameInstall.versionLabel() + warningPodLimitSuffix());
     }
 
     private void updateStatus(String message) {
         statusLabel.setText(message);
         updateCounts();
+    }
+
+    private int indexOfMountPath(List<PodListItem> items, String mountPath) {
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).mountPath().equals(mountPath)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void selectMountPath(String mountPath) {
+        for (int i = 0; i < mountedModel.size(); i++) {
+            if (mountedModel.get(i).mountPath().equals(mountPath)) {
+                mountedList.setSelectedIndex(i);
+                mountedList.ensureIndexIsVisible(i);
+                return;
+            }
+        }
+    }
+
+    private String filteredSuffix(int visible, int total) {
+        return visible == total ? "" : " (" + visible + " shown)";
+    }
+
+    private String warningPodLimitSuffix() {
+        return gameInstall.warningPodLimit()
+                .map(limit -> " (pod limit: " + limit + ")")
+                .orElse("");
     }
 
     private void warnNotSaved(IOException ex) {
@@ -556,6 +731,12 @@ public final class MainWindow extends JFrame {
     private static boolean isWindows() {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
+
+    private record StartupLoadResult(
+            PodMountList mountedPods,
+            List<String> availablePods,
+            String statusMessage,
+            IOException error) {}
 
     private static final class PodListItemRenderer extends DefaultListCellRenderer {
         private static final String TRACK_COLOR = "#66BFFF";

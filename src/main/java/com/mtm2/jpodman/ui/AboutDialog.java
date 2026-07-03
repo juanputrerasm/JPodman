@@ -17,8 +17,8 @@ public final class AboutDialog extends JDialog {
     public AboutDialog(Frame owner) {
         super(owner, "About JPodman", true);
 
-        JLabel title = new JLabel("JPodman v1.0", SwingConstants.CENTER);
-        title.setFont(title.getFont().deriveFont(Font.BOLD, 22f));
+        JLabel title = new JLabel("JPodman v1.0.1", SwingConstants.CENTER);
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
         JLabel subtitle = new JLabel(
                 "<html><div style='text-align:center'>"
                         + "Java POD mounting utility for Monster Truck Madness 1 & 2<br>"

@@ -37,4 +37,25 @@ class PodLimitPolicyTest {
         assertEquals("Unknown monster.exe", install.versionLabel());
         assertEquals(99, preferences.podLimit());
     }
+
+    @Test
+    void readsMonsterIniPodLimitAsWarningOnly() throws IOException {
+        Path system = tempDir.resolve("system");
+        Files.createDirectories(system);
+        Files.writeString(system.resolve("monster.ini"), "[Game]\npodLimit=199\n");
+
+        GameInstall install = MonsterExeDetector.detect(tempDir);
+        AppPreferences preferences = AppPreferences.defaults().withPodLimit(99);
+
+        assertEquals(199, install.monsterIniPodLimit().orElseThrow());
+        assertEquals(199, install.warningPodLimit().orElseThrow());
+        assertEquals(99, preferences.podLimit());
+    }
+
+    @Test
+    void missingMonsterIniPodLimitDoesNotBreakDetection() {
+        GameInstall install = MonsterExeDetector.detect(tempDir);
+
+        assertFalse(install.monsterIniPodLimit().isPresent());
+    }
 }

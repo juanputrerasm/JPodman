@@ -1,5 +1,6 @@
 package com.mtm2.jpodman;
 
+import com.mtm2.jpodman.ui.LoadingDialog;
 import com.mtm2.jpodman.ui.MainWindow;
 
 import javax.swing.SwingUtilities;
@@ -17,8 +18,13 @@ public final class JPodmanApp {
         }
 
         SwingUtilities.invokeLater(() -> {
+            LoadingDialog loadingDialog = new LoadingDialog(null);
+            loadingDialog.setVisible(true);
             MainWindow window = new MainWindow();
-            window.setVisible(true);
+            window.initializeAfterStartup(() -> {
+                loadingDialog.dispose();
+                window.setVisible(true);
+            });
         });
     }
 }

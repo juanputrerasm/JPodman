@@ -5,7 +5,7 @@
 
   <groupId>com.mtm2</groupId>
   <artifactId>jpodman</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <name>JPodman</name>
   <description>Java POD mounting utility for Monster Truck Madness 1 2</description>
 
