@@ -1,0 +1,623 @@
+package com.mtm2.jpodman.ui;
+
+import com.mtm2.jpodman.AppPreferences;
+import com.mtm2.jpodman.GameInstall;
+import com.mtm2.jpodman.PodListItem;
+import com.mtm2.jpodman.PodMountList;
+import com.mtm2.jpodman.io.MonsterExeDetector;
+import com.mtm2.jpodman.io.PodDiscoveryService;
+import com.mtm2.jpodman.io.PodIniReader;
+import com.mtm2.jpodman.io.PodIniWriter;
+import com.mtm2.jpodman.io.PodListExporter;
+import com.mtm2.jpodman.io.PodMetadataService;
+
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListModel;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.JButton;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.ListCellRenderer;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingWorker;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.BorderLayout;
+import java.awt.Desktop;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
+import java.awt.Insets;
+import java.awt.Component;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/** Main Swing window for managing mounted and available POD files. */
+public final class MainWindow extends JFrame {
+    private static final Dimension LIST_PANEL_MINIMUM_SIZE = new Dimension(300, 360);
+    private static final Dimension CONTROL_PANEL_SIZE = new Dimension(128, 220);
+
+    private AppPreferences preferences = AppPreferences.load();
+    private Path gameRoot = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+    private GameInstall gameInstall = MonsterExeDetector.detect(gameRoot);
+    private PodMountList mountedPods = PodMountList.empty();
+    private final PodMetadataService metadataService = new PodMetadataService();
+
+    private final DefaultListModel<PodListItem> mountedModel = new DefaultListModel<>();
+    private final DefaultListModel<PodListItem> availableModel = new DefaultListModel<>();
+    private final JList<PodListItem> mountedList = new JList<>(mountedModel);
+    private final JList<PodListItem> availableList = new JList<>(availableModel);
+    private final JLabel statusLabel = new JLabel("Ready");
+    private final JLabel mountedCountLabel = new JLabel();
+    private final JLabel availableCountLabel = new JLabel();
+    private final JLabel gameLabel = new JLabel();
+
+    public MainWindow() {
+        super("JPodman");
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setMinimumSize(new Dimension(840, 520));
+        setLocationByPlatform(true);
+        setAlwaysOnTop(preferences.keepWindowOnTop());
+
+        mountedList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        availableList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        ListCellRenderer<? super PodListItem> renderer = new PodListItemRenderer();
+        mountedList.setCellRenderer(renderer);
+        availableList.setCellRenderer(renderer);
+        mountedList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    removeSelectedMounted();
+                }
+            }
+        });
+        availableList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    addSelectedAvailable();
+                }
+            }
+        });
+
+        buildMenuBar();
+        add(buildContent(), BorderLayout.CENTER);
+        add(buildStatusBar(), BorderLayout.SOUTH);
+
+        loadPodIni(gameInstall.podIniPath(), false);
+        refreshAvailablePods();
+        updateStatus("Opened " + gameRoot);
+        pack();
+    }
+
+    private JPanel buildContent() {
+        JPanel mountedPanel = listPanel("Mounted PODs", mountedList, mountedCountLabel);
+        JPanel availablePanel = listPanel("Available PODs", availableList, availableCountLabel);
+
+        JButton add = new JButton("<< Add");
+        add.addActionListener(e -> addSelectedAvailable());
+        JButton remove = new JButton("Remove >>");
+        remove.addActionListener(e -> removeSelectedMounted());
+        JButton up = new JButton("Up");
+        up.addActionListener(e -> moveMounted(-1));
+        JButton down = new JButton("Down");
+        down.addActionListener(e -> moveMounted(1));
+        JButton refresh = new JButton("Refresh");
+        refresh.addActionListener(e -> refreshAvailablePods());
+        JPanel buttons = new JPanel(new GridLayout(0, 1, 4, 4));
+        buttons.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        buttons.setPreferredSize(CONTROL_PANEL_SIZE);
+        buttons.setMinimumSize(CONTROL_PANEL_SIZE);
+        buttons.add(add);
+        buttons.add(remove);
+        buttons.add(up);
+        buttons.add(down);
+        buttons.add(refresh);
+
+        JPanel buttonColumn = new JPanel(new GridBagLayout());
+        buttonColumn.setPreferredSize(new Dimension(CONTROL_PANEL_SIZE.width, CONTROL_PANEL_SIZE.height));
+        buttonColumn.setMinimumSize(new Dimension(CONTROL_PANEL_SIZE.width, 0));
+        GridBagConstraints bc = new GridBagConstraints();
+        bc.gridx = 0;
+        bc.gridy = 0;
+        bc.anchor = GridBagConstraints.CENTER;
+        buttonColumn.add(buttons, bc);
+
+        JPanel content = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridy = 0;
+        c.fill = GridBagConstraints.BOTH;
+        c.weighty = 1;
+        c.insets = new Insets(0, 0, 0, 0);
+
+        c.gridx = 0;
+        c.weightx = 0.5;
+        content.add(mountedPanel, c);
+        c.gridx = 1;
+        c.weightx = 0;
+        c.fill = GridBagConstraints.BOTH;
+        content.add(buttonColumn, c);
+        c.gridx = 2;
+        c.weightx = 0.5;
+        c.fill = GridBagConstraints.BOTH;
+        content.add(availablePanel, c);
+        return content;
+    }
+
+    private JPanel listPanel(String title, JList<PodListItem> list, JLabel countLabel) {
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+        panel.setBorder(BorderFactory.createTitledBorder(title));
+        panel.setMinimumSize(LIST_PANEL_MINIMUM_SIZE);
+        panel.setPreferredSize(LIST_PANEL_MINIMUM_SIZE);
+        panel.add(new JScrollPane(list), BorderLayout.CENTER);
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        footer.add(countLabel);
+        panel.add(footer, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel buildStatusBar() {
+        JPanel panel = new JPanel(new BorderLayout(8, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        panel.add(statusLabel, BorderLayout.CENTER);
+        panel.add(gameLabel, BorderLayout.EAST);
+        updateCounts();
+        return panel;
+    }
+
+    private void buildMenuBar() {
+        JMenuBar bar = new JMenuBar();
+
+        JMenu file = new JMenu("File");
+        file.add(menuItem("Open Game Folder...", this::chooseGameFolder));
+        file.add(menuItem("Open pod.ini...", this::openPodIni));
+        file.add(menuItem("Save pod.ini", this::savePodIni));
+        file.add(menuItem("Save pod.ini As...", this::savePodIniAs));
+        file.addSeparator();
+        file.add(menuItem("Export POD List...", this::exportPodList));
+        file.addSeparator();
+        file.add(menuItem("Save and Launch", () -> {
+            if (savePodIni()) {
+                launchGame();
+            }
+        }));
+        file.add(menuItem("Save and Exit", () -> {
+            if (savePodIni()) {
+                dispose();
+            }
+        }));
+        file.add(menuItem("Exit", this::dispose));
+
+        JMenu tools = new JMenu("Tools");
+        tools.add(menuItem("Refresh", this::refreshAvailablePods));
+        tools.add(menuItem("Restore Stock PODs", () -> restoreStockPods(false)));
+        tools.add(menuItem("Restore Minimal Stock PODs", () -> restoreStockPods(true)));
+        tools.add(menuItem("Sort Mounted PODs", this::sortMountedPods));
+        tools.addSeparator();
+        JMenuItem registryItem = menuItem("Registry Info...", this::showRegistryInfo);
+        registryItem.setEnabled(isWindows());
+        registryItem.setToolTipText(isWindows() ? "View/reset MTM registry keys" : "Registry reset is only available on Windows");
+        tools.add(registryItem);
+        tools.addSeparator();
+        tools.add(menuItem("Preferences...", this::showPreferences));
+
+        JMenu help = new JMenu("Help");
+        help.add(menuItem("About JPodman...", this::showAbout));
+
+        bar.add(file);
+        bar.add(tools);
+        bar.add(help);
+        setJMenuBar(bar);
+    }
+
+    private static JMenuItem menuItem(String label, Runnable action) {
+        JMenuItem item = new JMenuItem(label);
+        item.addActionListener(e -> action.run());
+        return item;
+    }
+
+    private void chooseGameFolder() {
+        JFileChooser chooser = new JFileChooser(gameRoot.toFile());
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setDialogTitle("Choose MTM Folder");
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        gameRoot = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+        gameInstall = MonsterExeDetector.detect(gameRoot);
+        metadataService.clear();
+        loadPodIni(gameInstall.podIniPath(), false);
+        refreshAvailablePods();
+        updateStatus("Opened " + gameRoot);
+    }
+
+    private void openPodIni() {
+        JFileChooser chooser = iniChooser("Open pod.ini");
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            Path selected = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+            gameRoot = selected.getParent() == null ? gameRoot : selected.getParent();
+            gameInstall = MonsterExeDetector.detect(gameRoot);
+            metadataService.clear();
+            loadPodIni(selected, true);
+            refreshAvailablePods();
+        }
+    }
+
+    private boolean savePodIni() {
+        try {
+            syncModelToMounted();
+            PodIniWriter.write(gameInstall.podIniPath(), mountedPods);
+            updateStatus("Saved " + gameInstall.podIniPath());
+            return true;
+        } catch (IOException ex) {
+            warnNotSaved(ex);
+            return false;
+        }
+    }
+
+    private void savePodIniAs() {
+        JFileChooser chooser = iniChooser("Save pod.ini As");
+        chooser.setSelectedFile(gameInstall.podIniPath().toFile());
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try {
+                syncModelToMounted();
+                PodIniWriter.write(ensureExtension(chooser.getSelectedFile().toPath(), ".ini"), mountedPods);
+                updateStatus("Saved " + chooser.getSelectedFile());
+            } catch (IOException ex) {
+                warnNotSaved(ex);
+            }
+        }
+    }
+
+    private void exportPodList() {
+        JFileChooser chooser = new JFileChooser(gameRoot.toFile());
+        chooser.setDialogTitle("Export POD List");
+        chooser.setFileFilter(new FileNameExtensionFilter("Text Files (*.txt)", "txt"));
+        chooser.setSelectedFile(gameRoot.resolve("podlist.txt").toFile());
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try {
+                syncModelToMounted();
+                PodListExporter.export(ensureExtension(chooser.getSelectedFile().toPath(), ".txt"), mountedPods);
+                updateStatus("Exported POD list");
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, "The POD list could not be exported:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+            }
+        }
+    }
+
+    private void launchGame() {
+        if (gameInstall.executable().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No monster.exe or monsterx.exe was found in the current folder.", "JPodman", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            Desktop.getDesktop().open(gameInstall.executable().get().toFile());
+        } catch (IOException | UnsupportedOperationException ex) {
+            JOptionPane.showMessageDialog(this, "The game could not be launched:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void showPreferences() {
+        PreferencesDialog dialog = new PreferencesDialog(this, preferences);
+        dialog.setVisible(true);
+        if (!dialog.wasConfirmed()) {
+            return;
+        }
+        preferences = dialog.preferences();
+        try {
+            preferences.save();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Preferences could not be saved:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+        }
+        setAlwaysOnTop(preferences.keepWindowOnTop());
+        trimMountedToLimit();
+        if (preferences.sortMountedPods()) {
+            sortMountedPods();
+        }
+        refreshAvailablePods();
+    }
+
+    private void showAbout() {
+        new AboutDialog(this).setVisible(true);
+    }
+
+    private void showRegistryInfo() {
+        if (!isWindows()) {
+            JOptionPane.showMessageDialog(this, "Registry reset is only available on Windows.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        try {
+            Class<?> dialogClass = Class.forName("com.mtm2.jpodman.ui.RegistryDialog");
+            JDialog dialog = (JDialog) dialogClass
+                    .getConstructor(java.awt.Frame.class, GameInstall.class)
+                    .newInstance(this, gameInstall);
+            dialog.setVisible(true);
+        } catch (NoClassDefFoundError ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Registry support requires the JNA runtime libraries.\n"
+                            + "Run the packaged jar from target/jpodman.jar, or include Maven runtime dependencies on the classpath.",
+                    "JPodman",
+                    JOptionPane.WARNING_MESSAGE);
+        } catch (ReflectiveOperationException ex) {
+            JOptionPane.showMessageDialog(this, "Registry dialog could not be opened:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void loadPodIni(Path path, boolean imported) {
+        try {
+            mountedPods = PodIniReader.read(path, preferences.podLimit());
+            reloadMountedModel();
+            if (Files.exists(path)) {
+                updateStatus((imported ? "Loaded " : "Opened ") + path);
+            } else {
+                updateStatus("No pod.ini found; a new one will be created on save.");
+            }
+        } catch (IOException ex) {
+            mountedPods = PodMountList.empty();
+            reloadMountedModel();
+            JOptionPane.showMessageDialog(this, "pod.ini could not be read. Starting with an empty list:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void refreshAvailablePods() {
+        syncModelToMounted();
+        availableModel.clear();
+        List<String> discovered = PodDiscoveryService.discover(gameRoot, preferences.extraPodFolders(), preferences.folderDepth(), mountedPods);
+        for (String entry : discovered) {
+            availableModel.addElement(PodListItem.plain(entry));
+        }
+        decorateModel(availableModel);
+        updateCounts();
+        updateStatus("Refreshed available PODs");
+    }
+
+    private void addSelectedAvailable() {
+        List<PodListItem> selected = availableList.getSelectedValuesList();
+        if (selected.isEmpty()) {
+            return;
+        }
+        syncModelToMounted();
+        for (PodListItem item : selected) {
+            String entry = item.mountPath();
+            if (mountedPods.isFull(preferences.podLimit())) {
+                JOptionPane.showMessageDialog(this, "The configured POD limit is " + preferences.podLimit() + ".", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+                break;
+            }
+            Path actualPath = PodDiscoveryService.resolveMountedPath(gameRoot, entry);
+            if (!Files.isRegularFile(actualPath) || !PodDiscoveryService.isAcceptablePodPath(entry)) {
+                continue;
+            }
+            mountedPods.add(entry, preferences.podLimit());
+        }
+        reloadMountedModel();
+        refreshAvailablePods();
+    }
+
+    private void removeSelectedMounted() {
+        List<PodListItem> selected = mountedList.getSelectedValuesList();
+        if (selected.isEmpty()) {
+            return;
+        }
+        syncModelToMounted();
+        selected.forEach(item -> mountedPods.remove(item.mountPath()));
+        reloadMountedModel();
+        refreshAvailablePods();
+    }
+
+    private void restoreStockPods(boolean minimal) {
+        mountedPods = PodMountList.empty();
+        for (String entry : PodMountList.stockEntries(minimal)) {
+            String stock = entry;
+            if (!Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, stock))) {
+                stock = entry.replace("Fixes/", "Stock/");
+            }
+            if (!Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, stock))) {
+                stock = Path.of(entry).getFileName().toString();
+            }
+            mountedPods.add(stock, preferences.podLimit());
+        }
+        reloadMountedModel();
+        refreshAvailablePods();
+    }
+
+    private void sortMountedPods() {
+        syncModelToMounted();
+        mountedPods.sortCaseInsensitive();
+        reloadMountedModel();
+    }
+
+    private void moveMounted(int direction) {
+        int index = mountedList.getSelectedIndex();
+        int target = index + direction;
+        if (index < 0 || target < 0 || target >= mountedModel.size()) {
+            return;
+        }
+        PodListItem value = mountedModel.remove(index);
+        mountedModel.add(target, value);
+        mountedList.setSelectedIndex(target);
+        syncModelToMounted();
+        updateCounts();
+    }
+
+    private void reloadMountedModel() {
+        mountedModel.clear();
+        for (String entry : mountedPods.entries()) {
+            mountedModel.addElement(PodListItem.plain(entry));
+        }
+        decorateModel(mountedModel);
+        updateCounts();
+    }
+
+    private void syncModelToMounted() {
+        PodMountList updated = PodMountList.empty();
+        for (int i = 0; i < mountedModel.size(); i++) {
+            updated.add(mountedModel.get(i).mountPath(), preferences.podLimit());
+        }
+        mountedPods = updated;
+    }
+
+    private void decorateModel(DefaultListModel<PodListItem> model) {
+        List<PodListItem> snapshot = new ArrayList<>();
+        for (int i = 0; i < model.size(); i++) {
+            snapshot.add(model.get(i));
+        }
+        new SwingWorker<List<PodListItem>, Void>() {
+            @Override
+            protected List<PodListItem> doInBackground() {
+                List<PodListItem> decorated = new ArrayList<>(snapshot.size());
+                for (PodListItem item : snapshot) {
+                    decorated.add(new PodListItem(item.mountPath(), metadataService.displayLabel(gameRoot, item.mountPath())));
+                }
+                return decorated;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<PodListItem> decorated = get();
+                    if (model.size() != snapshot.size()) {
+                        return;
+                    }
+                    for (int i = 0; i < snapshot.size(); i++) {
+                        if (!model.get(i).mountPath().equals(snapshot.get(i).mountPath())) {
+                            return;
+                        }
+                    }
+                    for (int i = 0; i < decorated.size(); i++) {
+                        model.set(i, decorated.get(i));
+                    }
+                } catch (Exception ignored) {
+                    // Plain labels are already visible; metadata is best effort.
+                }
+            }
+        }.execute();
+    }
+
+    private void trimMountedToLimit() {
+        syncModelToMounted();
+        if (mountedPods.size() <= preferences.podLimit()) {
+            return;
+        }
+        PodMountList trimmed = PodMountList.empty();
+        for (String entry : mountedPods.entries()) {
+            trimmed.add(entry, preferences.podLimit());
+        }
+        mountedPods = trimmed;
+        reloadMountedModel();
+    }
+
+    private void updateCounts() {
+        mountedCountLabel.setText(mountedModel.size() + " of " + preferences.podLimit());
+        availableCountLabel.setText(Integer.toString(availableModel.size()));
+        gameLabel.setText(gameInstall.versionLabel());
+    }
+
+    private void updateStatus(String message) {
+        statusLabel.setText(message);
+        updateCounts();
+    }
+
+    private void warnNotSaved(IOException ex) {
+        JOptionPane.showMessageDialog(
+                this,
+                "pod.ini could not be saved, so no data was persisted.\n" + ex.getMessage(),
+                "JPodman",
+                JOptionPane.WARNING_MESSAGE);
+    }
+
+    private JFileChooser iniChooser(String title) {
+        JFileChooser chooser = new JFileChooser(gameRoot.toFile());
+        chooser.setDialogTitle(title);
+        chooser.setFileFilter(new FileNameExtensionFilter("POD INI Files (*.ini)", "ini"));
+        return chooser;
+    }
+
+    private static Path ensureExtension(Path path, String extension) {
+        String text = path.toString();
+        return text.toLowerCase().endsWith(extension) ? path : Path.of(text + extension);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    private static final class PodListItemRenderer extends DefaultListCellRenderer {
+        private static final String TRACK_COLOR = "#66BFFF";
+        private static final String TRUCK_COLOR = "#FF8A8A";
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<?> list,
+                Object value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof PodListItem item) {
+                label.setText(toHtml(item.displayLabel()));
+                label.setToolTipText(item.mountPath());
+            }
+            return label;
+        }
+
+        private static String toHtml(String displayLabel) {
+            int metadataStart = displayLabel.indexOf(" [");
+            if (metadataStart < 0 || !displayLabel.endsWith("]")) {
+                return "<html><b>" + escapeHtml(displayLabel) + "</b></html>";
+            }
+            String podName = displayLabel.substring(0, metadataStart);
+            String metadata = displayLabel.substring(metadataStart + 2, displayLabel.length() - 1);
+            return "<html><b>" + escapeHtml(podName) + "</b> [" + colorMetadata(metadata) + "]</html>";
+        }
+
+        private static String colorMetadata(String metadata) {
+            String[] groups = metadata.split("; ");
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < groups.length; i++) {
+                if (i > 0) {
+                    sb.append("; ");
+                }
+                String group = groups[i];
+                String color = metadataColor(group);
+                sb.append("<font color=\"").append(color).append("\">")
+                        .append(escapeHtml(group))
+                        .append("</font>");
+            }
+            return sb.toString();
+        }
+
+        private static String metadataColor(String group) {
+            String lower = group.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("track")) {
+                return TRACK_COLOR;
+            }
+            if (lower.startsWith("truck")) {
+                return TRUCK_COLOR;
+            }
+            return "#AAAAAA";
+        }
+
+        private static String escapeHtml(String text) {
+            return text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;");
+        }
+    }
+}
