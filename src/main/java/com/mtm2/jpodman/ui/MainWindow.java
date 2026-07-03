@@ -35,9 +35,11 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -739,8 +741,9 @@ public final class MainWindow extends JFrame {
             IOException error) {}
 
     private static final class PodListItemRenderer extends DefaultListCellRenderer {
-        private static final String TRACK_COLOR = "#66BFFF";
-        private static final String TRUCK_COLOR = "#FF8A8A";
+        private static final Color TRACK_COLOR = new Color(80, 170, 255);
+        private static final Color TRUCK_COLOR = new Color(255, 120, 120);
+        private static final Color FALLBACK_METADATA_COLOR = new Color(150, 150, 150);
 
         @Override
         public Component getListCellRendererComponent(
@@ -749,41 +752,52 @@ public final class MainWindow extends JFrame {
                 int index,
                 boolean isSelected,
                 boolean cellHasFocus) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof PodListItem item) {
-                label.setText(toHtml(item.displayLabel()));
-                label.setToolTipText(item.mountPath());
+            JLabel base = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (!(value instanceof PodListItem item)) {
+                return base;
             }
+
+            JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            row.setOpaque(true);
+            row.setBackground(base.getBackground());
+            row.setBorder(base.getBorder());
+            row.setToolTipText(item.mountPath());
+
+            Font listFont = list.getFont();
+            int metadataStart = item.displayLabel().indexOf(" [");
+            if (metadataStart < 0 || !item.displayLabel().endsWith("]")) {
+                row.add(label(item.displayLabel(), listFont.deriveFont(Font.BOLD), base.getForeground()));
+                return row;
+            }
+
+            String podName = item.displayLabel().substring(0, metadataStart);
+            String metadata = item.displayLabel().substring(metadataStart + 2, item.displayLabel().length() - 1);
+            row.add(label(podName, listFont.deriveFont(Font.BOLD), base.getForeground()));
+            row.add(label(" [", listFont, base.getForeground()));
+            addMetadataLabels(row, metadata, listFont, isSelected ? base.getForeground() : null);
+            row.add(label("]", listFont, base.getForeground()));
+            return row;
+        }
+
+        private static void addMetadataLabels(JPanel row, String metadata, Font font, Color selectedForeground) {
+            String[] groups = metadata.split("; ");
+            for (int i = 0; i < groups.length; i++) {
+                if (i > 0) {
+                    row.add(label("; ", font, selectedForeground != null ? selectedForeground : FALLBACK_METADATA_COLOR));
+                }
+                String group = groups[i];
+                row.add(label(group, font, selectedForeground != null ? selectedForeground : metadataColor(group)));
+            }
+        }
+
+        private static JLabel label(String text, Font font, Color color) {
+            JLabel label = new JLabel(text);
+            label.setFont(font);
+            label.setForeground(color);
             return label;
         }
 
-        private static String toHtml(String displayLabel) {
-            int metadataStart = displayLabel.indexOf(" [");
-            if (metadataStart < 0 || !displayLabel.endsWith("]")) {
-                return "<html><b>" + escapeHtml(displayLabel) + "</b></html>";
-            }
-            String podName = displayLabel.substring(0, metadataStart);
-            String metadata = displayLabel.substring(metadataStart + 2, displayLabel.length() - 1);
-            return "<html><b>" + escapeHtml(podName) + "</b> [" + colorMetadata(metadata) + "]</html>";
-        }
-
-        private static String colorMetadata(String metadata) {
-            String[] groups = metadata.split("; ");
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < groups.length; i++) {
-                if (i > 0) {
-                    sb.append("; ");
-                }
-                String group = groups[i];
-                String color = metadataColor(group);
-                sb.append("<font color=\"").append(color).append("\">")
-                        .append(escapeHtml(group))
-                        .append("</font>");
-            }
-            return sb.toString();
-        }
-
-        private static String metadataColor(String group) {
+        private static Color metadataColor(String group) {
             String lower = group.toLowerCase(Locale.ROOT);
             if (lower.startsWith("track")) {
                 return TRACK_COLOR;
@@ -791,14 +805,7 @@ public final class MainWindow extends JFrame {
             if (lower.startsWith("truck")) {
                 return TRUCK_COLOR;
             }
-            return "#AAAAAA";
-        }
-
-        private static String escapeHtml(String text) {
-            return text.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\"", "&quot;");
+            return FALLBACK_METADATA_COLOR;
         }
     }
 }
