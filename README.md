@@ -19,6 +19,8 @@ JPodman is a Java 17 Swing tool for managing Monster Truck Madness 1 & 2 `pod.in
 - Reads optional `system/monster.ini` `podLimit` values added by community patches.
 - Shows detected/suggested POD limit information in the status bar as a warning only.
 - Preferences dialog with JSON storage in the user's OS-specific config folder.
+- Monster.ini Fonts & Settings editor for custom fonts, localization file, extra horn, latency display, and hidden track settings.
+- Saved POD List Manager with `pod.ini` import, always-mount entries, missing-file validation, and one-click mounting.
 - Windows-only registry info and reset tools using JNA-based registry access.
 - JNA registry support targets the 32-bit Windows registry view used by MTM1 & 2.
 
@@ -48,7 +50,7 @@ Preferences are stored as JSON in the user's config folder:
 - Windows: `%APPDATA%/JPodman/preferences.json`
 - Linux/Unix: `$XDG_CONFIG_HOME/JPodman/preferences.json` or `~/.config/JPodman/preferences.json`
 
-The preferences file stores the POD limit, extra POD folders, folder scan depth, sort mode, always-on-top mode, and view mode.
+The preferences file stores the POD limit, extra POD folders, folder scan depth, sort mode, always-on-top mode, view mode, and saved POD lists.
 
 ---
 

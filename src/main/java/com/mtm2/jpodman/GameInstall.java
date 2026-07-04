@@ -14,6 +14,10 @@ public record GameInstall(
         return rootFolder.resolve("pod.ini");
     }
 
+    public Path monsterIniPath() {
+        return rootFolder.resolve("system").resolve("monster.ini");
+    }
+
     public boolean canLaunch() {
         return executable.isPresent();
     }

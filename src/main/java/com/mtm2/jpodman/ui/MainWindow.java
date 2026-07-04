@@ -56,7 +56,7 @@ import java.util.Optional;
 /** Main Swing window for managing mounted and available POD files. */
 public final class MainWindow extends JFrame {
     private static final Dimension LIST_PANEL_MINIMUM_SIZE = new Dimension(300, 360);
-    private static final Dimension CONTROL_PANEL_SIZE = new Dimension(128, 220);
+    private static final Dimension CONTROL_PANEL_SIZE = new Dimension(128, 260);
 
     private AppPreferences preferences = AppPreferences.load();
     private Path gameRoot = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
@@ -76,6 +76,7 @@ public final class MainWindow extends JFrame {
     private final JLabel mountedCountLabel = new JLabel();
     private final JLabel availableCountLabel = new JLabel();
     private final JLabel gameLabel = new JLabel();
+    private JMenuItem fontsAndSettingsItem;
 
     public MainWindow() {
         super("JPodman");
@@ -183,6 +184,8 @@ public final class MainWindow extends JFrame {
         down.addActionListener(e -> moveMounted(1));
         JButton refresh = new JButton("Refresh");
         refresh.addActionListener(e -> refreshAvailablePods());
+        JButton podLists = new JButton("POD Lists");
+        podLists.addActionListener(e -> showPodListManager());
         JPanel buttons = new JPanel(new GridLayout(0, 1, 4, 4));
         buttons.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         buttons.setPreferredSize(CONTROL_PANEL_SIZE);
@@ -192,6 +195,7 @@ public final class MainWindow extends JFrame {
         buttons.add(up);
         buttons.add(down);
         buttons.add(refresh);
+        buttons.add(podLists);
 
         JPanel buttonColumn = new JPanel(new GridBagLayout());
         buttonColumn.setPreferredSize(new Dimension(CONTROL_PANEL_SIZE.width, CONTROL_PANEL_SIZE.height));
@@ -277,13 +281,17 @@ public final class MainWindow extends JFrame {
         tools.add(menuItem("Restore Stock PODs", () -> restoreStockPods(false)));
         tools.add(menuItem("Restore Minimal Stock PODs", () -> restoreStockPods(true)));
         tools.add(menuItem("Sort Mounted PODs", this::sortMountedPods));
+        tools.add(menuItem("Pod List Manager...", this::showPodListManager));
         tools.addSeparator();
         JMenuItem registryItem = menuItem("Registry Info...", this::showRegistryInfo);
         registryItem.setEnabled(isWindows());
         registryItem.setToolTipText(isWindows() ? "View/reset MTM registry keys" : "Registry reset is only available on Windows");
         tools.add(registryItem);
+        fontsAndSettingsItem = menuItem("Fonts & Settings...", this::showFontsAndSettings);
+        tools.add(fontsAndSettingsItem);
         tools.addSeparator();
         tools.add(menuItem("Preferences...", this::showPreferences));
+        updateMenuAvailability();
 
         JMenu help = new JMenu("Help");
         help.add(menuItem("About JPodman...", this::showAbout));
@@ -309,6 +317,7 @@ public final class MainWindow extends JFrame {
         }
         gameRoot = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
         gameInstall = MonsterExeDetector.detect(gameRoot);
+        updateMenuAvailability();
         metadataService.clear();
         loadPodIni(gameInstall.podIniPath(), false);
         refreshAvailablePods();
@@ -321,6 +330,7 @@ public final class MainWindow extends JFrame {
             Path selected = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
             gameRoot = selected.getParent() == null ? gameRoot : selected.getParent();
             gameInstall = MonsterExeDetector.detect(gameRoot);
+            updateMenuAvailability();
             metadataService.clear();
             loadPodIni(selected, true);
             refreshAvailablePods();
@@ -425,8 +435,38 @@ public final class MainWindow extends JFrame {
         refreshAvailablePods();
     }
 
+    private void showPodListManager() {
+        PodListManagerDialog dialog = new PodListManagerDialog(this);
+        dialog.setVisible(true);
+    }
+
     private void showAbout() {
         new AboutDialog(this).setVisible(true);
+    }
+
+    Path gameRootPath() {
+        return gameRoot;
+    }
+
+    AppPreferences preferencesSnapshot() {
+        return preferences;
+    }
+
+    List<PodListItem> knownPodItems() {
+        List<PodListItem> combined = new ArrayList<>();
+        combined.addAll(allMountedItems);
+        combined.addAll(allAvailableItems);
+        return List.copyOf(combined);
+    }
+
+    void updatePreferencesFromDialog(AppPreferences updated) throws IOException {
+        preferences = updated;
+        preferences.save();
+    }
+
+    void reloadGamePodIniFromDialog() {
+        loadPodIni(gameInstall.podIniPath(), false);
+        refreshAvailablePods();
     }
 
     private void showRegistryInfo() {
@@ -449,6 +489,26 @@ public final class MainWindow extends JFrame {
                     JOptionPane.WARNING_MESSAGE);
         } catch (ReflectiveOperationException ex) {
             JOptionPane.showMessageDialog(this, "Registry dialog could not be opened:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void showFontsAndSettings() {
+        if (!Files.isRegularFile(gameInstall.monsterIniPath())) {
+            JOptionPane.showMessageDialog(this, "system/monster.ini was not found in the current game folder.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        FontsAndSettingsDialog dialog = new FontsAndSettingsDialog(this, gameInstall, () -> {
+            gameInstall = MonsterExeDetector.detect(gameRoot);
+            updateCounts();
+        });
+        dialog.setVisible(true);
+    }
+
+    private void updateMenuAvailability() {
+        if (fontsAndSettingsItem != null) {
+            boolean exists = Files.isRegularFile(gameInstall.monsterIniPath());
+            fontsAndSettingsItem.setEnabled(exists);
+            fontsAndSettingsItem.setToolTipText(exists ? "Edit system/monster.ini fonts and settings" : "system/monster.ini was not found");
         }
     }
 

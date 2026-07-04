@@ -17,7 +17,8 @@ public record AppPreferences(
         int folderDepth,
         boolean sortMountedPods,
         boolean keepWindowOnTop,
-        String viewMode) {
+        String viewMode,
+        List<SavedPodList> savedPodLists) {
     public static final int DEFAULT_POD_LIMIT = 99;
     public static final int MIN_POD_LIMIT = 1;
     public static final int MAX_POD_LIMIT = 999;
@@ -28,10 +29,15 @@ public record AppPreferences(
         podLimit = clampPodLimit(podLimit);
         extraPodFolders = sanitizePaths(extraPodFolders);
         viewMode = viewMode == null || viewMode.isBlank() ? "dualList" : viewMode;
+        savedPodLists = savedPodLists == null ? List.of() : List.copyOf(savedPodLists);
+    }
+
+    public AppPreferences(int podLimit, List<Path> extraPodFolders, int folderDepth, boolean sortMountedPods, boolean keepWindowOnTop, String viewMode) {
+        this(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, List.of());
     }
 
     public static AppPreferences defaults() {
-        return new AppPreferences(DEFAULT_POD_LIMIT, List.of(), -1, false, false, "dualList");
+        return new AppPreferences(DEFAULT_POD_LIMIT, List.of(), -1, false, false, "dualList", List.of());
     }
 
     public static Path preferencesPath() {
@@ -88,23 +94,27 @@ public record AppPreferences(
     }
 
     public AppPreferences withPodLimit(int newLimit) {
-        return new AppPreferences(newLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode);
+        return new AppPreferences(newLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
     }
 
     public AppPreferences withExtraPodFolders(List<Path> folders) {
-        return new AppPreferences(podLimit, folders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode);
+        return new AppPreferences(podLimit, folders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
     }
 
     public AppPreferences withFolderDepth(int newDepth) {
-        return new AppPreferences(podLimit, extraPodFolders, newDepth, sortMountedPods, keepWindowOnTop, viewMode);
+        return new AppPreferences(podLimit, extraPodFolders, newDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
     }
 
     public AppPreferences withSortMountedPods(boolean sort) {
-        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sort, keepWindowOnTop, viewMode);
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sort, keepWindowOnTop, viewMode, savedPodLists);
     }
 
     public AppPreferences withKeepWindowOnTop(boolean keepOnTop) {
-        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepOnTop, viewMode);
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepOnTop, viewMode, savedPodLists);
+    }
+
+    public AppPreferences withSavedPodLists(List<SavedPodList> lists) {
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, lists);
     }
 
     public static AppPreferences parse(String json) {
@@ -118,7 +128,8 @@ public record AppPreferences(
                 parseInt(json, "folderDepth", defaults.folderDepth),
                 parseBoolean(json, "sortMountedPods", defaults.sortMountedPods),
                 parseBoolean(json, "keepWindowOnTop", defaults.keepWindowOnTop),
-                parseString(json, "viewMode", defaults.viewMode));
+                parseString(json, "viewMode", defaults.viewMode),
+                parseSavedPodLists(json));
     }
 
     public String toJson() {
@@ -128,7 +139,8 @@ public record AppPreferences(
                 + "  \"folderDepth\": " + folderDepth + ",\n"
                 + "  \"sortMountedPods\": " + sortMountedPods + ",\n"
                 + "  \"keepWindowOnTop\": " + keepWindowOnTop + ",\n"
-                + "  \"viewMode\": " + jsonString(viewMode) + "\n"
+                + "  \"viewMode\": " + jsonString(viewMode) + ",\n"
+                + "  \"savedPodLists\": " + jsonSavedPodListArray(savedPodLists) + "\n"
                 + "}\n";
     }
 
@@ -168,34 +180,166 @@ public record AppPreferences(
     }
 
     private static List<Path> parsePathArray(String json, String key) {
+        String body = parseArrayBody(json, key);
+        if (body == null) {
+            return List.of();
+        }
+        Matcher matcher = STRING_ARRAY_VALUE.matcher(body);
+        List<Path> values = new ArrayList<>();
+        while (matcher.find()) {
+            values.add(Path.of(unescapeJson(matcher.group(1))));
+        }
+        return values;
+    }
+
+    private static List<SavedPodList> parseSavedPodLists(String json) {
+        String body = parseArrayBody(json, "savedPodLists");
+        if (body == null || body.isBlank()) {
+            return List.of();
+        }
+        List<SavedPodList> lists = new ArrayList<>();
+        for (String object : splitTopLevelObjects(body)) {
+            lists.add(new SavedPodList(
+                    parseString(object, "id", ""),
+                    parseString(object, "name", "Untitled List"),
+                    parseStringListFromObject(object, "entries"),
+                    parseStringListFromObject(object, "alwaysMount"),
+                    parseString(object, "createdAt", ""),
+                    parseString(object, "updatedAt", "")));
+        }
+        return List.copyOf(lists);
+    }
+
+    private static List<String> parseStringListFromObject(String json, String key) {
+        String body = parseArrayBody(json, key);
+        if (body == null) {
+            return List.of();
+        }
+        Matcher matcher = STRING_ARRAY_VALUE.matcher(body);
+        List<String> values = new ArrayList<>();
+        while (matcher.find()) {
+            values.add(unescapeJson(matcher.group(1)));
+        }
+        return List.copyOf(values);
+    }
+
+    private static String parseArrayBody(String json, String key) {
         String marker = "\"" + key + "\"";
         int keyIndex = json.indexOf(marker);
         if (keyIndex < 0) {
-            return List.of();
+            return null;
         }
         int arrayStart = json.indexOf('[', keyIndex);
         if (arrayStart < 0) {
-            return List.of();
+            return null;
         }
         int depth = 0;
+        boolean inString = false;
+        boolean escaping = false;
         for (int i = arrayStart; i < json.length(); i++) {
             char ch = json.charAt(i);
+            if (escaping) {
+                escaping = false;
+                continue;
+            }
+            if (ch == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+            if (ch == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
             if (ch == '[') {
                 depth++;
             } else if (ch == ']') {
                 depth--;
                 if (depth == 0) {
-                    String body = json.substring(arrayStart + 1, i);
-                    Matcher matcher = STRING_ARRAY_VALUE.matcher(body);
-                    List<Path> values = new ArrayList<>();
-                    while (matcher.find()) {
-                        values.add(Path.of(unescapeJson(matcher.group(1))));
-                    }
-                    return values;
+                    return json.substring(arrayStart + 1, i);
                 }
             }
         }
-        return List.of();
+        return null;
+    }
+
+    private static List<String> splitTopLevelObjects(String body) {
+        List<String> objects = new ArrayList<>();
+        int depth = 0;
+        int start = -1;
+        boolean inString = false;
+        boolean escaping = false;
+        for (int i = 0; i < body.length(); i++) {
+            char ch = body.charAt(i);
+            if (escaping) {
+                escaping = false;
+                continue;
+            }
+            if (ch == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+            if (ch == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
+            if (ch == '{') {
+                if (depth == 0) {
+                    start = i;
+                }
+                depth++;
+            } else if (ch == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    objects.add(body.substring(start, i + 1));
+                    start = -1;
+                }
+            }
+        }
+        return objects;
+    }
+
+    private static String jsonSavedPodListArray(List<SavedPodList> lists) {
+        if (lists == null || lists.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[\n");
+        for (int i = 0; i < lists.size(); i++) {
+            SavedPodList list = lists.get(i);
+            if (i > 0) {
+                sb.append(",\n");
+            }
+            sb.append("    {")
+                    .append("\"id\": ").append(jsonString(list.id())).append(", ")
+                    .append("\"name\": ").append(jsonString(list.name())).append(", ")
+                    .append("\"entries\": ").append(jsonStringArray(list.entries())).append(", ")
+                    .append("\"alwaysMount\": ").append(jsonStringArray(list.alwaysMount())).append(", ")
+                    .append("\"createdAt\": ").append(jsonString(list.createdAt())).append(", ")
+                    .append("\"updatedAt\": ").append(jsonString(list.updatedAt()))
+                    .append("}");
+        }
+        sb.append("\n  ]");
+        return sb.toString();
+    }
+
+    private static String jsonStringArray(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(jsonString(values.get(i)));
+        }
+        sb.append(']');
+        return sb.toString();
     }
 
     private static String jsonPathArray(List<Path> values) {

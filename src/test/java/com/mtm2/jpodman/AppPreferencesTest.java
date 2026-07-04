@@ -55,6 +55,37 @@ class AppPreferencesTest {
     }
 
     @Test
+    void oldJsonWithoutSavedListsLoadsEmptySavedListCollection() {
+        AppPreferences loaded = AppPreferences.parse("""
+                {
+                  "podLimit": 99,
+                  "extraPodFolders": [],
+                  "folderDepth": -1,
+                  "sortMountedPods": false,
+                  "keepWindowOnTop": false,
+                  "viewMode": "dualList"
+                }
+                """);
+
+        assertEquals(List.of(), loaded.savedPodLists());
+    }
+
+    @Test
+    void savesAndLoadsSavedPodListsInPreferencesJson() throws IOException {
+        Path file = tempDir.resolve("preferences.json");
+        SavedPodList list = new SavedPodList("one", "Adoob", List.of("a.pod", "b.pod"), List.of("fixmore4.pod"), "created", "updated");
+        AppPreferences preferences = AppPreferences.defaults().withSavedPodLists(List.of(list));
+
+        preferences.save(file);
+        AppPreferences loaded = AppPreferences.load(file);
+
+        assertEquals(1, loaded.savedPodLists().size());
+        assertEquals("Adoob", loaded.savedPodLists().get(0).name());
+        assertEquals(List.of("a.pod", "b.pod"), loaded.savedPodLists().get(0).entries());
+        assertEquals(List.of("fixmore4.pod"), loaded.savedPodLists().get(0).alwaysMount());
+    }
+
+    @Test
     void resolvesOsSpecificPreferencePaths() {
         assertEquals(Path.of("/home/me/Library/Application Support/JPodman/preferences.json"),
                 AppPreferences.preferencesPath("Mac OS X", "/home/me", null, null));
