@@ -7,6 +7,7 @@ import com.mtm2.jpodman.PodListItem;
 import com.mtm2.jpodman.PodMountList;
 import com.mtm2.jpodman.io.MonsterExeDetector;
 import com.mtm2.jpodman.io.PodDiscoveryService;
+import com.mtm2.jpodman.io.PodDisplayNameResolver;
 import com.mtm2.jpodman.io.PodIniReader;
 import com.mtm2.jpodman.io.PodIniWriter;
 import com.mtm2.jpodman.io.PodListExporter;
@@ -14,7 +15,6 @@ import com.mtm2.jpodman.io.PodMetadataService;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -35,16 +35,13 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
-import java.awt.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -95,7 +92,7 @@ public final class MainWindow extends JFrame {
         mountedList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && selectClickedRow(mountedList, e)) {
                     removeSelectedMounted();
                 }
             }
@@ -103,7 +100,7 @@ public final class MainWindow extends JFrame {
         availableList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && selectClickedRow(availableList, e)) {
                     addSelectedAvailable();
                 }
             }
@@ -281,8 +278,8 @@ public final class MainWindow extends JFrame {
         tools.add(menuItem("Restore Stock PODs", () -> restoreStockPods(false)));
         tools.add(menuItem("Restore Minimal Stock PODs", () -> restoreStockPods(true)));
         tools.add(menuItem("Sort Mounted PODs", this::sortMountedPods));
-        tools.add(menuItem("Pod List Manager...", this::showPodListManager));
         tools.addSeparator();
+        tools.add(menuItem("Pod List Manager...", this::showPodListManager));
         JMenuItem registryItem = menuItem("Registry Info...", this::showRegistryInfo);
         registryItem.setEnabled(isWindows());
         registryItem.setToolTipText(isWindows() ? "View/reset MTM registry keys" : "Registry reset is only available on Windows");
@@ -428,6 +425,7 @@ public final class MainWindow extends JFrame {
             JOptionPane.showMessageDialog(this, "Preferences could not be saved:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
         }
         setAlwaysOnTop(preferences.keepWindowOnTop());
+        refreshDisplayedPodLabels();
         trimMountedToLimit();
         if (preferences.sortMountedPods()) {
             sortMountedPods();
@@ -457,6 +455,23 @@ public final class MainWindow extends JFrame {
         combined.addAll(allMountedItems);
         combined.addAll(allAvailableItems);
         return List.copyOf(combined);
+    }
+
+    List<PodListItem> mountedPodItems() {
+        return refreshDisplayLabels(allMountedItems);
+    }
+
+    List<PodListItem> availablePodItems() {
+        return refreshDisplayLabels(allAvailableItems);
+    }
+
+    PodListItem podListItemFor(String mountPath) {
+        for (PodListItem item : knownPodItems()) {
+            if (normalizeMountPath(item.mountPath()).equals(normalizeMountPath(mountPath))) {
+                return new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath()));
+            }
+        }
+        return new PodListItem(mountPath, PodDisplayNameResolver.missingLabel(mountPath));
     }
 
     void updatePreferencesFromDialog(AppPreferences updated) throws IOException {
@@ -528,7 +543,7 @@ public final class MainWindow extends JFrame {
         }
     }
 
-    private void refreshAvailablePods() {
+    void refreshAvailablePods() {
         syncModelToMounted();
         List<String> discovered = PodDiscoveryService.discover(gameRoot, preferences.extraPodFolders(), preferences.folderDepth(), mountedPods);
         setAvailableItemsFromPaths(discovered);
@@ -657,7 +672,7 @@ public final class MainWindow extends JFrame {
             protected List<PodListItem> doInBackground() {
                 List<PodListItem> decorated = new ArrayList<>(snapshot.size());
                 for (PodListItem item : snapshot) {
-                    decorated.add(new PodListItem(item.mountPath(), metadataService.displayLabel(gameRoot, item.mountPath())));
+                    decorated.add(new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath())));
                 }
                 return decorated;
             }
@@ -672,6 +687,45 @@ public final class MainWindow extends JFrame {
                 }
             }
         }.execute();
+    }
+
+    private void refreshDisplayedPodLabels() {
+        allMountedItems = refreshDisplayLabels(allMountedItems);
+        allAvailableItems = refreshDisplayLabels(allAvailableItems);
+        applyMountedFilter();
+        applyAvailableFilter();
+    }
+
+    private List<PodListItem> refreshDisplayLabels(List<PodListItem> items) {
+        List<PodListItem> refreshed = new ArrayList<>();
+        for (PodListItem item : items) {
+            String existingLabel = item.displayLabel();
+            if (existingLabel.endsWith(" [missing]")) {
+                refreshed.add(item);
+            } else {
+                refreshed.add(new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath())));
+            }
+        }
+        return List.copyOf(refreshed);
+    }
+
+    private String displayLabelForPath(String mountPath) {
+        Path podPath = PodDiscoveryService.resolveMountedPath(gameRoot, mountPath);
+        return PodDisplayNameResolver.displayLabel(
+                mountPath,
+                metadataService.metadataFor(podPath),
+                isSystemPod(mountPath));
+    }
+
+    private boolean isSystemPod(String mountPath) {
+        String normalized = normalizeMountPath(mountPath);
+        String fileName = normalizeFileName(mountPath);
+        for (String systemPod : preferences.systemPodFiles()) {
+            if (normalized.equals(normalizeMountPath(systemPod)) || fileName.equals(normalizeFileName(systemPod))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void applyMountedFilter() {
@@ -794,78 +848,33 @@ public final class MainWindow extends JFrame {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
+    private static boolean selectClickedRow(JList<?> list, java.awt.event.MouseEvent event) {
+        int index = list.locationToIndex(event.getPoint());
+        if (index < 0) {
+            return false;
+        }
+        java.awt.Rectangle bounds = list.getCellBounds(index, index);
+        if (bounds == null || !bounds.contains(event.getPoint())) {
+            return false;
+        }
+        list.setSelectedIndex(index);
+        return true;
+    }
+
+    private static String normalizeMountPath(String value) {
+        return value == null ? "" : value.trim().replace('\\', '/').toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeFileName(String value) {
+        String normalized = normalizeMountPath(value);
+        int slash = normalized.lastIndexOf('/');
+        return slash < 0 ? normalized : normalized.substring(slash + 1);
+    }
+
     private record StartupLoadResult(
             PodMountList mountedPods,
             List<String> availablePods,
             String statusMessage,
             IOException error) {}
 
-    private static final class PodListItemRenderer extends DefaultListCellRenderer {
-        private static final Color TRACK_COLOR = new Color(80, 170, 255);
-        private static final Color TRUCK_COLOR = new Color(255, 120, 120);
-        private static final Color FALLBACK_METADATA_COLOR = new Color(150, 150, 150);
-
-        @Override
-        public Component getListCellRendererComponent(
-                JList<?> list,
-                Object value,
-                int index,
-                boolean isSelected,
-                boolean cellHasFocus) {
-            JLabel base = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (!(value instanceof PodListItem item)) {
-                return base;
-            }
-
-            JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-            row.setOpaque(true);
-            row.setBackground(base.getBackground());
-            row.setBorder(base.getBorder());
-            row.setToolTipText(item.mountPath());
-
-            Font listFont = list.getFont();
-            int metadataStart = item.displayLabel().indexOf(" [");
-            if (metadataStart < 0 || !item.displayLabel().endsWith("]")) {
-                row.add(label(item.displayLabel(), listFont.deriveFont(Font.BOLD), base.getForeground()));
-                return row;
-            }
-
-            String podName = item.displayLabel().substring(0, metadataStart);
-            String metadata = item.displayLabel().substring(metadataStart + 2, item.displayLabel().length() - 1);
-            row.add(label(podName, listFont.deriveFont(Font.BOLD), base.getForeground()));
-            row.add(label(" [", listFont, base.getForeground()));
-            addMetadataLabels(row, metadata, listFont, isSelected ? base.getForeground() : null);
-            row.add(label("]", listFont, base.getForeground()));
-            return row;
-        }
-
-        private static void addMetadataLabels(JPanel row, String metadata, Font font, Color selectedForeground) {
-            String[] groups = metadata.split("; ");
-            for (int i = 0; i < groups.length; i++) {
-                if (i > 0) {
-                    row.add(label("; ", font, selectedForeground != null ? selectedForeground : FALLBACK_METADATA_COLOR));
-                }
-                String group = groups[i];
-                row.add(label(group, font, selectedForeground != null ? selectedForeground : metadataColor(group)));
-            }
-        }
-
-        private static JLabel label(String text, Font font, Color color) {
-            JLabel label = new JLabel(text);
-            label.setFont(font);
-            label.setForeground(color);
-            return label;
-        }
-
-        private static Color metadataColor(String group) {
-            String lower = group.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("track")) {
-                return TRACK_COLOR;
-            }
-            if (lower.startsWith("truck")) {
-                return TRUCK_COLOR;
-            }
-            return FALLBACK_METADATA_COLOR;
-        }
-    }
 }

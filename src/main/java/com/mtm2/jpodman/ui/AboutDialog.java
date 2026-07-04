@@ -21,7 +21,7 @@ public final class AboutDialog extends JDialog {
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         JLabel subtitle = new JLabel(
                 "<html><div style='text-align:center'>"
-                        + "Java POD mounting utility for Monster Truck Madness 1 & 2<br>"
+                        + "POD mounting utility for Monster Truck Madness 1 & 2<br>"
                         + "By Kmaster<br><br>"
                         + "<tt>www.mtm2.com</tt>"
                         + "</div></html>",

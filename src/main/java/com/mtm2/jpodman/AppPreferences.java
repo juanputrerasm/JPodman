@@ -18,10 +18,18 @@ public record AppPreferences(
         boolean sortMountedPods,
         boolean keepWindowOnTop,
         String viewMode,
+        List<String> systemPodFiles,
         List<SavedPodList> savedPodLists) {
     public static final int DEFAULT_POD_LIMIT = 99;
     public static final int MIN_POD_LIMIT = 1;
     public static final int MAX_POD_LIMIT = 999;
+    public static final List<String> DEFAULT_SYSTEM_POD_FILES = List.of(
+            "startup.pod",
+            "cockpit.pod",
+            "ui.pod",
+            "sound.pod",
+            "truck2.pod",
+            "music.pod");
 
     private static final Pattern STRING_ARRAY_VALUE = Pattern.compile("\"((?:\\\\.|[^\"])*)\"");
 
@@ -29,15 +37,16 @@ public record AppPreferences(
         podLimit = clampPodLimit(podLimit);
         extraPodFolders = sanitizePaths(extraPodFolders);
         viewMode = viewMode == null || viewMode.isBlank() ? "dualList" : viewMode;
+        systemPodFiles = sanitizeSystemPodFiles(systemPodFiles);
         savedPodLists = savedPodLists == null ? List.of() : List.copyOf(savedPodLists);
     }
 
     public AppPreferences(int podLimit, List<Path> extraPodFolders, int folderDepth, boolean sortMountedPods, boolean keepWindowOnTop, String viewMode) {
-        this(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, List.of());
+        this(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, DEFAULT_SYSTEM_POD_FILES, List.of());
     }
 
     public static AppPreferences defaults() {
-        return new AppPreferences(DEFAULT_POD_LIMIT, List.of(), -1, false, false, "dualList", List.of());
+        return new AppPreferences(DEFAULT_POD_LIMIT, List.of(), -1, false, false, "dualList", DEFAULT_SYSTEM_POD_FILES, List.of());
     }
 
     public static Path preferencesPath() {
@@ -94,27 +103,31 @@ public record AppPreferences(
     }
 
     public AppPreferences withPodLimit(int newLimit) {
-        return new AppPreferences(newLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
+        return new AppPreferences(newLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, systemPodFiles, savedPodLists);
     }
 
     public AppPreferences withExtraPodFolders(List<Path> folders) {
-        return new AppPreferences(podLimit, folders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
+        return new AppPreferences(podLimit, folders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, systemPodFiles, savedPodLists);
     }
 
     public AppPreferences withFolderDepth(int newDepth) {
-        return new AppPreferences(podLimit, extraPodFolders, newDepth, sortMountedPods, keepWindowOnTop, viewMode, savedPodLists);
+        return new AppPreferences(podLimit, extraPodFolders, newDepth, sortMountedPods, keepWindowOnTop, viewMode, systemPodFiles, savedPodLists);
     }
 
     public AppPreferences withSortMountedPods(boolean sort) {
-        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sort, keepWindowOnTop, viewMode, savedPodLists);
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sort, keepWindowOnTop, viewMode, systemPodFiles, savedPodLists);
     }
 
     public AppPreferences withKeepWindowOnTop(boolean keepOnTop) {
-        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepOnTop, viewMode, savedPodLists);
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepOnTop, viewMode, systemPodFiles, savedPodLists);
+    }
+
+    public AppPreferences withSystemPodFiles(List<String> files) {
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, files, savedPodLists);
     }
 
     public AppPreferences withSavedPodLists(List<SavedPodList> lists) {
-        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, lists);
+        return new AppPreferences(podLimit, extraPodFolders, folderDepth, sortMountedPods, keepWindowOnTop, viewMode, systemPodFiles, lists);
     }
 
     public static AppPreferences parse(String json) {
@@ -129,6 +142,7 @@ public record AppPreferences(
                 parseBoolean(json, "sortMountedPods", defaults.sortMountedPods),
                 parseBoolean(json, "keepWindowOnTop", defaults.keepWindowOnTop),
                 parseString(json, "viewMode", defaults.viewMode),
+                parseStringArray(json, "systemPodFiles", DEFAULT_SYSTEM_POD_FILES),
                 parseSavedPodLists(json));
     }
 
@@ -140,6 +154,7 @@ public record AppPreferences(
                 + "  \"sortMountedPods\": " + sortMountedPods + ",\n"
                 + "  \"keepWindowOnTop\": " + keepWindowOnTop + ",\n"
                 + "  \"viewMode\": " + jsonString(viewMode) + ",\n"
+                + "  \"systemPodFiles\": " + jsonStringArray(systemPodFiles) + ",\n"
                 + "  \"savedPodLists\": " + jsonSavedPodListArray(savedPodLists) + "\n"
                 + "}\n";
     }
@@ -159,6 +174,29 @@ public record AppPreferences(
                 if (!sanitized.contains(normalized)) {
                     sanitized.add(normalized);
                 }
+            }
+        }
+        return List.copyOf(sanitized);
+    }
+
+    private static List<String> sanitizeSystemPodFiles(List<String> files) {
+        if (files == null) {
+            return DEFAULT_SYSTEM_POD_FILES;
+        }
+        if (files.isEmpty()) {
+            return List.of();
+        }
+        List<String> sanitized = new ArrayList<>();
+        List<String> seen = new ArrayList<>();
+        for (String file : files) {
+            if (file == null || file.isBlank()) {
+                continue;
+            }
+            String value = file.trim().replace('\\', '/');
+            String key = value.toLowerCase(Locale.ROOT);
+            if (!seen.contains(key)) {
+                seen.add(key);
+                sanitized.add(value);
             }
         }
         return List.copyOf(sanitized);
@@ -192,6 +230,19 @@ public record AppPreferences(
         return values;
     }
 
+    private static List<String> parseStringArray(String json, String key, List<String> defaultValue) {
+        String body = parseArrayBody(json, key);
+        if (body == null) {
+            return defaultValue;
+        }
+        Matcher matcher = STRING_ARRAY_VALUE.matcher(body);
+        List<String> values = new ArrayList<>();
+        while (matcher.find()) {
+            values.add(unescapeJson(matcher.group(1)));
+        }
+        return List.copyOf(values);
+    }
+
     private static List<SavedPodList> parseSavedPodLists(String json) {
         String body = parseArrayBody(json, "savedPodLists");
         if (body == null || body.isBlank()) {
@@ -203,7 +254,7 @@ public record AppPreferences(
                     parseString(object, "id", ""),
                     parseString(object, "name", "Untitled List"),
                     parseStringListFromObject(object, "entries"),
-                    parseStringListFromObject(object, "alwaysMount"),
+                    List.of(),
                     parseString(object, "createdAt", ""),
                     parseString(object, "updatedAt", "")));
         }
@@ -318,7 +369,6 @@ public record AppPreferences(
                     .append("\"id\": ").append(jsonString(list.id())).append(", ")
                     .append("\"name\": ").append(jsonString(list.name())).append(", ")
                     .append("\"entries\": ").append(jsonStringArray(list.entries())).append(", ")
-                    .append("\"alwaysMount\": ").append(jsonStringArray(list.alwaysMount())).append(", ")
                     .append("\"createdAt\": ").append(jsonString(list.createdAt())).append(", ")
                     .append("\"updatedAt\": ").append(jsonString(list.updatedAt()))
                     .append("}");

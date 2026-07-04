@@ -21,6 +21,7 @@ class AppPreferencesTest {
         assertEquals(99, preferences.podLimit());
         assertEquals(List.of(), preferences.extraPodFolders());
         assertEquals(-1, preferences.folderDepth());
+        assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, preferences.systemPodFiles());
     }
 
     @Test
@@ -42,6 +43,7 @@ class AppPreferencesTest {
         assertEquals(2, loaded.folderDepth());
         assertTrue(loaded.sortMountedPods());
         assertTrue(loaded.keepWindowOnTop());
+        assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, loaded.systemPodFiles());
     }
 
     @Test
@@ -68,6 +70,7 @@ class AppPreferencesTest {
                 """);
 
         assertEquals(List.of(), loaded.savedPodLists());
+        assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, loaded.systemPodFiles());
     }
 
     @Test
@@ -82,7 +85,25 @@ class AppPreferencesTest {
         assertEquals(1, loaded.savedPodLists().size());
         assertEquals("Adoob", loaded.savedPodLists().get(0).name());
         assertEquals(List.of("a.pod", "b.pod"), loaded.savedPodLists().get(0).entries());
-        assertEquals(List.of("fixmore4.pod"), loaded.savedPodLists().get(0).alwaysMount());
+        assertEquals(List.of(), loaded.savedPodLists().get(0).alwaysMount());
+    }
+
+    @Test
+    void savesAndLoadsSystemPodFiles() throws IOException {
+        Path file = tempDir.resolve("preferences.json");
+        AppPreferences preferences = AppPreferences.defaults().withSystemPodFiles(List.of("ui.pod", "UI.POD", "Fixes/truck2.pod"));
+
+        preferences.save(file);
+        AppPreferences loaded = AppPreferences.load(file);
+
+        assertEquals(List.of("ui.pod", "Fixes/truck2.pod"), loaded.systemPodFiles());
+    }
+
+    @Test
+    void allowsEmptySystemPodFiles() {
+        AppPreferences preferences = AppPreferences.defaults().withSystemPodFiles(List.of());
+
+        assertEquals(List.of(), preferences.systemPodFiles());
     }
 
     @Test

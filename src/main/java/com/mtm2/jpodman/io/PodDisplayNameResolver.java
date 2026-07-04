@@ -8,13 +8,24 @@ public final class PodDisplayNameResolver {
     private PodDisplayNameResolver() {}
 
     public static String displayLabel(String mountPath, PodMetadata metadata) {
+        return displayLabel(mountPath, metadata, false);
+    }
+
+    public static String displayLabel(String mountPath, PodMetadata metadata, boolean systemPod) {
         if (metadata == null || metadata.isEmpty()) {
-            return mountPath;
+            return systemPod ? mountPath + " [System]" : mountPath;
         }
         StringJoiner groups = new StringJoiner("; ");
+        if (systemPod) {
+            groups.add("System");
+        }
         addGroup(groups, "Track", "Tracks", metadata.tracks());
         addGroup(groups, "Truck", "Trucks", metadata.trucks());
         return mountPath + " [" + groups + "]";
+    }
+
+    public static String missingLabel(String mountPath) {
+        return mountPath + " [missing]";
     }
 
     static void addGroup(StringJoiner groups, String singular, String plural, List<String> names) {

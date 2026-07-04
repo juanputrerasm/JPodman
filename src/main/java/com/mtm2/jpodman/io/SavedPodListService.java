@@ -5,7 +5,6 @@ import com.mtm2.jpodman.PodMountList;
 import com.mtm2.jpodman.SavedPodList;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -20,16 +19,11 @@ public final class SavedPodListService {
     public static SavedPodList importPodIni(Path podIni, String name, int podLimit) throws IOException {
         PodMountList list = PodIniReader.read(podIni, podLimit);
         String defaultName = podIni.getFileName() == null ? "Imported pod.ini" : podIni.getFileName().toString().replaceFirst("(?i)\\.ini$", "");
-        return SavedPodList.create(name == null || name.isBlank() ? defaultName : name, list.entries());
+        return SavedPodList.create(name == null || name.isBlank() ? defaultName : name, dedupe(list.entries()));
     }
 
     public static List<String> combineForMount(SavedPodList list) {
-        List<String> combined = new ArrayList<>();
-        if (list != null) {
-            combined.addAll(list.entries());
-            combined.addAll(list.alwaysMount());
-        }
-        return dedupe(combined);
+        return list == null ? List.of() : dedupe(list.entries());
     }
 
     public static List<String> dedupe(List<String> entries) {
@@ -55,7 +49,7 @@ public final class SavedPodListService {
         List<String> existing = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (String entry : dedupe(entries)) {
-            if (known.contains(normalize(entry)) || Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, entry))) {
+            if (known.contains(normalize(entry))) {
                 existing.add(entry);
             } else {
                 missing.add(entry);

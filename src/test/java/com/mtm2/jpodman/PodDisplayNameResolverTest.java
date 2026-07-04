@@ -32,4 +32,15 @@ class PodDisplayNameResolverTest {
         assertEquals("Mixed.pod [Track:Miami; Truck:Bigfoot]",
                 PodDisplayNameResolver.displayLabel("Mixed.pod", new PodMetadata(List.of("Miami"), List.of("Bigfoot"))));
     }
+
+    @Test
+    void formatsSystemPodsBeforeDetectedMetadata() {
+        assertEquals("truck2.pod [System; Trucks:4]",
+                PodDisplayNameResolver.displayLabel("truck2.pod", new PodMetadata(List.of(), List.of("A", "B", "C", "D")), true));
+    }
+
+    @Test
+    void formatsMissingPods() {
+        assertEquals("Missing1.pod [missing]", PodDisplayNameResolver.missingLabel("Missing1.pod"));
+    }
 }

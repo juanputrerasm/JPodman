@@ -14,6 +14,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTextArea;
 import javax.swing.SpinnerNumberModel;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -37,6 +38,7 @@ public class PreferencesDialog extends JDialog {
     private final JCheckBox sortCheck = new JCheckBox("Sort mounted PODs");
     private final JCheckBox keepOnTopCheck = new JCheckBox("Keep window on top");
     private final DefaultListModel<Path> foldersModel = new DefaultListModel<>();
+    private final JTextArea systemPodsArea = new JTextArea(6, 30);
     private boolean confirmed;
     private AppPreferences preferences;
 
@@ -48,10 +50,13 @@ public class PreferencesDialog extends JDialog {
         sortCheck.setSelected(preferences.sortMountedPods());
         keepOnTopCheck.setSelected(preferences.keepWindowOnTop());
         preferences.extraPodFolders().forEach(foldersModel::addElement);
+        systemPodsArea.setText(String.join(System.lineSeparator(), preferences.systemPodFiles()));
 
         JList<Path> foldersList = new JList<>(foldersModel);
         JScrollPane foldersScroll = new JScrollPane(foldersList);
         foldersScroll.setPreferredSize(new Dimension(420, 120));
+        JScrollPane systemPodsScroll = new JScrollPane(systemPodsArea);
+        systemPodsScroll.setPreferredSize(new Dimension(420, 120));
 
         JButton addFolder = new JButton("Add Folder...");
         addFolder.addActionListener(e -> {
@@ -123,6 +128,14 @@ public class PreferencesDialog extends JDialog {
         c.weighty = 0;
         form.add(folderButtons, c);
 
+        c.gridy = 7;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        form.add(new JLabel("System POD files:"), c);
+        c.gridy = 8;
+        c.fill = GridBagConstraints.BOTH;
+        c.weighty = 0.5;
+        form.add(systemPodsScroll, c);
+
         JButton ok = new JButton("Save");
         ok.addActionListener(e -> onSave());
         JButton cancel = new JButton("Cancel");
@@ -135,7 +148,7 @@ public class PreferencesDialog extends JDialog {
         add(form, BorderLayout.CENTER);
         add(buttons, BorderLayout.SOUTH);
         pack();
-        setSize(new Dimension(760, Math.max(getHeight(), 390)));
+        setSize(new Dimension(760, Math.max(getHeight(), 520)));
         setMinimumSize(getSize());
         setResizable(false);
         setLocationRelativeTo(owner);
@@ -167,7 +180,9 @@ public class PreferencesDialog extends JDialog {
                 (Integer) folderDepthSpinner.getValue(),
                 sortCheck.isSelected(),
                 keepOnTopCheck.isSelected(),
-                preferences.viewMode());
+                preferences.viewMode(),
+                systemPodFiles(),
+                preferences.savedPodLists());
         confirmed = true;
         dispose();
     }
@@ -178,6 +193,16 @@ public class PreferencesDialog extends JDialog {
             folders.add(foldersModel.get(i));
         }
         return folders;
+    }
+
+    private List<String> systemPodFiles() {
+        List<String> files = new ArrayList<>();
+        for (String line : systemPodsArea.getText().split("\\R")) {
+            if (!line.isBlank()) {
+                files.add(line.trim());
+            }
+        }
+        return files;
     }
 
     private boolean containsFolder(Path folder) {

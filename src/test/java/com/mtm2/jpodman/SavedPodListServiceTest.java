@@ -21,7 +21,7 @@ class SavedPodListServiceTest {
     @Test
     void importsExternalPodIniIntoSavedList() throws IOException {
         Path source = tempDir.resolve("downloaded.ini");
-        Files.writeString(source, "2\ntracks/a.pod\ntrucks/b.pod\n");
+        Files.writeString(source, "3\ntracks/a.pod\ntrucks/b.pod\nTRACKS/A.POD\n");
 
         SavedPodList list = SavedPodListService.importPodIni(source, "Internet List", 99);
 
@@ -30,14 +30,14 @@ class SavedPodListServiceTest {
     }
 
     @Test
-    void combinesAlwaysMountAndDedupesInOrder() {
+    void combinesEntriesOnlyAndDedupesInOrder() {
         SavedPodList list = new SavedPodList("id", "Race Night", List.of("a.pod", "b.pod"), List.of("B.POD", "c.pod"), "c", "u");
 
-        assertEquals(List.of("a.pod", "b.pod", "c.pod"), SavedPodListService.combineForMount(list));
+        assertEquals(List.of("a.pod", "b.pod"), SavedPodListService.combineForMount(list));
     }
 
     @Test
-    void validatesMissingFilesWithKnownItemsAndFilesystemFallback() throws IOException {
+    void validatesMissingFilesAgainstKnownItems() throws IOException {
         Path gameRoot = tempDir.resolve("MTM2");
         Files.createDirectories(gameRoot);
         Files.writeString(gameRoot.resolve("existing.pod"), "");
@@ -45,8 +45,8 @@ class SavedPodListServiceTest {
 
         ValidationResult result = SavedPodListService.validate(gameRoot, List.of("known.pod", "existing.pod", "missing.pod"), known);
 
-        assertEquals(List.of("known.pod", "existing.pod"), result.existing());
-        assertEquals(List.of("missing.pod"), result.missing());
+        assertEquals(List.of("known.pod"), result.existing());
+        assertEquals(List.of("existing.pod", "missing.pod"), result.missing());
     }
 
     @Test
