@@ -5,6 +5,7 @@ import com.mtm2.jpodman.PodMountList;
 import com.mtm2.jpodman.SavedPodList;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -49,7 +50,7 @@ public final class SavedPodListService {
         List<String> existing = new ArrayList<>();
         List<String> missing = new ArrayList<>();
         for (String entry : dedupe(entries)) {
-            if (known.contains(normalize(entry))) {
+            if (known.contains(normalize(entry)) || Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, entry))) {
                 existing.add(entry);
             } else {
                 missing.add(entry);

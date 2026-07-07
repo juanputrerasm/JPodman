@@ -73,6 +73,7 @@ public final class MainWindow extends JFrame {
     private final JLabel mountedCountLabel = new JLabel();
     private final JLabel availableCountLabel = new JLabel();
     private final JLabel gameLabel = new JLabel();
+    private JMenuItem registryItem;
     private JMenuItem fontsAndSettingsItem;
 
     public MainWindow() {
@@ -168,8 +169,10 @@ public final class MainWindow extends JFrame {
     }
 
     private JPanel buildContent() {
-        JPanel mountedPanel = listPanel("Mounted PODs", mountedList, mountedCountLabel, mountedFilterField);
-        JPanel availablePanel = listPanel("Available PODs", availableList, availableCountLabel, availableFilterField);
+        JPanel mountedPanel = listPanel("Mounted PODs", mountedList, mountedCountLabel, mountedFilterField, null);
+        JButton manualAdd = new JButton("Add...");
+        manualAdd.addActionListener(e -> addPodFilesFromChooser());
+        JPanel availablePanel = listPanel("Available PODs", availableList, availableCountLabel, availableFilterField, manualAdd);
 
         JButton add = new JButton("<< Add");
         add.addActionListener(e -> addSelectedAvailable());
@@ -224,7 +227,7 @@ public final class MainWindow extends JFrame {
         return content;
     }
 
-    private JPanel listPanel(String title, JList<PodListItem> list, JLabel countLabel, JTextField filterField) {
+    private JPanel listPanel(String title, JList<PodListItem> list, JLabel countLabel, JTextField filterField, JButton extraFilterButton) {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
         panel.setBorder(BorderFactory.createTitledBorder(title));
         panel.setMinimumSize(LIST_PANEL_MINIMUM_SIZE);
@@ -233,6 +236,9 @@ public final class MainWindow extends JFrame {
         filterPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         filterPanel.add(new JLabel("Filter:"), BorderLayout.WEST);
         filterPanel.add(filterField, BorderLayout.CENTER);
+        if (extraFilterButton != null) {
+            filterPanel.add(extraFilterButton, BorderLayout.EAST);
+        }
         panel.add(filterPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(list), BorderLayout.CENTER);
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -280,9 +286,7 @@ public final class MainWindow extends JFrame {
         tools.add(menuItem("Sort Mounted PODs", this::sortMountedPods));
         tools.addSeparator();
         tools.add(menuItem("Pod List Manager...", this::showPodListManager));
-        JMenuItem registryItem = menuItem("Registry Info...", this::showRegistryInfo);
-        registryItem.setEnabled(isWindows());
-        registryItem.setToolTipText(isWindows() ? "View/reset MTM registry keys" : "Registry reset is only available on Windows");
+        registryItem = menuItem("Registry Info...", this::showRegistryInfo);
         tools.add(registryItem);
         fontsAndSettingsItem = menuItem("Fonts & Settings...", this::showFontsAndSettings);
         tools.add(fontsAndSettingsItem);
@@ -308,7 +312,7 @@ public final class MainWindow extends JFrame {
     private void chooseGameFolder() {
         JFileChooser chooser = new JFileChooser(gameRoot.toFile());
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setDialogTitle("Choose MTM Folder");
+        chooser.setDialogTitle("Choose Game Folder");
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
@@ -378,7 +382,7 @@ public final class MainWindow extends JFrame {
 
     private void launchGame() {
         if (gameInstall.executable().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No monster.exe or monsterx.exe was found in the current folder.", "JPodman", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "No known game executable was found in the current folder.", "JPodman", JOptionPane.WARNING_MESSAGE);
             return;
         }
         syncModelToMounted();
@@ -399,7 +403,7 @@ public final class MainWindow extends JFrame {
         }
         String source = gameInstall.monsterIniPodLimit().isPresent()
                 ? "system/monster.ini podLimit"
-                : gameInstall.versionInfo().map(MonsterVersionInfo::displayLabel).orElse("detected game version");
+                : gameInstall.versionInfo().map(MonsterVersionInfo::displayLabel).orElse(gameInstall.gameName());
         int result = JOptionPane.showConfirmDialog(
                 this,
                 "Detected " + source + ".\n"
@@ -418,6 +422,7 @@ public final class MainWindow extends JFrame {
         if (!dialog.wasConfirmed()) {
             return;
         }
+        AppPreferences previous = preferences;
         preferences = dialog.preferences();
         try {
             preferences.save();
@@ -430,7 +435,13 @@ public final class MainWindow extends JFrame {
         if (preferences.sortMountedPods()) {
             sortMountedPods();
         }
-        refreshAvailablePods();
+        if (!previous.extraPodFolders().equals(preferences.extraPodFolders())
+                || previous.folderDepth() != preferences.folderDepth()) {
+            refreshAvailablePods();
+        } else {
+            refreshDisplayedPodLabels();
+            refreshAvailableFromKnown(knownPodItems());
+        }
     }
 
     private void showPodListManager() {
@@ -471,6 +482,9 @@ public final class MainWindow extends JFrame {
                 return new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath()));
             }
         }
+        if (Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, mountPath))) {
+            return new PodListItem(mountPath, displayLabelForPath(mountPath));
+        }
         return new PodListItem(mountPath, PodDisplayNameResolver.missingLabel(mountPath));
     }
 
@@ -484,9 +498,21 @@ public final class MainWindow extends JFrame {
         refreshAvailablePods();
     }
 
+    void replaceMountedEntriesFromDialog(List<String> entries) {
+        List<PodListItem> known = knownPodItems();
+        mountedPods = PodMountList.of(entries, preferences.podLimit());
+        reloadMountedModel();
+        refreshAvailableFromKnown(known);
+        updateStatus("Updated mounted POD list");
+    }
+
     private void showRegistryInfo() {
         if (!isWindows()) {
             JOptionPane.showMessageDialog(this, "Registry reset is only available on Windows.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (!gameInstall.hasMtmExecutable()) {
+            JOptionPane.showMessageDialog(this, "Registry info is only available for Monster Truck Madness folders.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         try {
@@ -508,6 +534,10 @@ public final class MainWindow extends JFrame {
     }
 
     private void showFontsAndSettings() {
+        if (!gameInstall.hasMtmExecutable()) {
+            JOptionPane.showMessageDialog(this, "Fonts and settings are only available for Monster Truck Madness folders.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         if (!Files.isRegularFile(gameInstall.monsterIniPath())) {
             JOptionPane.showMessageDialog(this, "system/monster.ini was not found in the current game folder.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -520,10 +550,20 @@ public final class MainWindow extends JFrame {
     }
 
     private void updateMenuAvailability() {
+        if (registryItem != null) {
+            boolean enabled = isWindows() && gameInstall.hasMtmExecutable();
+            registryItem.setEnabled(enabled);
+            registryItem.setToolTipText(enabled
+                    ? "View/reset MTM registry keys"
+                    : isWindows() ? "Registry info is only available for Monster Truck Madness folders" : "Registry reset is only available on Windows");
+        }
         if (fontsAndSettingsItem != null) {
+            boolean mtm = gameInstall.hasMtmExecutable();
             boolean exists = Files.isRegularFile(gameInstall.monsterIniPath());
-            fontsAndSettingsItem.setEnabled(exists);
-            fontsAndSettingsItem.setToolTipText(exists ? "Edit system/monster.ini fonts and settings" : "system/monster.ini was not found");
+            fontsAndSettingsItem.setEnabled(mtm && exists);
+            fontsAndSettingsItem.setToolTipText(mtm
+                    ? exists ? "Edit system/monster.ini fonts and settings" : "system/monster.ini was not found"
+                    : "Fonts and settings are only available for Monster Truck Madness folders");
         }
     }
 
@@ -556,6 +596,7 @@ public final class MainWindow extends JFrame {
         if (selected.isEmpty()) {
             return;
         }
+        List<PodListItem> known = knownPodItems();
         syncModelToMounted();
         for (PodListItem item : selected) {
             String entry = item.mountPath();
@@ -570,7 +611,7 @@ public final class MainWindow extends JFrame {
             mountedPods.add(entry, preferences.podLimit());
         }
         reloadMountedModel();
-        refreshAvailablePods();
+        refreshAvailableFromKnown(known);
     }
 
     private void removeSelectedMounted() {
@@ -578,26 +619,103 @@ public final class MainWindow extends JFrame {
         if (selected.isEmpty()) {
             return;
         }
+        List<PodListItem> known = knownPodItems();
         syncModelToMounted();
         selected.forEach(item -> mountedPods.remove(item.mountPath()));
         reloadMountedModel();
-        refreshAvailablePods();
+        refreshAvailableFromKnown(known);
     }
 
     private void restoreStockPods(boolean minimal) {
+        List<PodListItem> known = knownPodItems();
         mountedPods = PodMountList.empty();
-        for (String entry : PodMountList.stockEntries(minimal)) {
-            String stock = entry;
-            if (!Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, stock))) {
-                stock = entry.replace("Fixes/", "Stock/");
-            }
-            if (!Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, stock))) {
-                stock = Path.of(entry).getFileName().toString();
-            }
-            mountedPods.add(stock, preferences.podLimit());
+        for (String entry : stockEntries(minimal)) {
+            mountedPods.add(resolveConfiguredPodEntry(entry), preferences.podLimit());
         }
         reloadMountedModel();
-        refreshAvailablePods();
+        refreshAvailableFromKnown(known);
+    }
+
+    private void addPodFilesFromChooser() {
+        List<String> selectedEntries = choosePodFileEntries(this);
+        if (selectedEntries.isEmpty()) {
+            return;
+        }
+        List<PodListItem> known = knownPodItems();
+        syncModelToMounted();
+        for (String entry : selectedEntries) {
+            if (mountedPods.contains(entry)) {
+                continue;
+            }
+            if (mountedPods.isFull(preferences.podLimit())) {
+                JOptionPane.showMessageDialog(this, "The configured POD limit is " + preferences.podLimit() + ".", "JPodman", JOptionPane.INFORMATION_MESSAGE);
+                break;
+            }
+            mountedPods.add(entry, preferences.podLimit());
+            known = mergeKnownPodItem(known, podListItemFor(entry));
+        }
+        reloadMountedModel();
+        refreshAvailableFromKnown(known);
+    }
+
+    List<String> choosePodFileEntries(java.awt.Component parent) {
+        JFileChooser chooser = new JFileChooser(gameRoot.toFile());
+        chooser.setDialogTitle("Add POD Files");
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setFileFilter(new FileNameExtensionFilter("POD Files (*.pod)", "pod"));
+        if (chooser.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) {
+            return List.of();
+        }
+        List<String> entries = new ArrayList<>();
+        for (java.io.File file : chooser.getSelectedFiles()) {
+            Path pod = file.toPath().toAbsolutePath().normalize();
+            if (Files.isRegularFile(pod) && pod.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".pod")) {
+                entries.add(mountEntryForPodFile(pod));
+            }
+        }
+        return com.mtm2.jpodman.io.SavedPodListService.dedupe(entries);
+    }
+
+    List<String> minimalSystemPodEntriesForUse() {
+        List<String> entries = new ArrayList<>();
+        for (String entry : preferences.minimalSystemPodFiles()) {
+            entries.add(resolveConfiguredPodEntry(entry));
+        }
+        return com.mtm2.jpodman.io.SavedPodListService.dedupe(entries);
+    }
+
+    private List<String> stockEntries(boolean minimal) {
+        List<String> entries = new ArrayList<>(preferences.minimalSystemPodFiles());
+        if (!minimal) {
+            entries.addAll(preferences.systemPodFiles());
+        }
+        return com.mtm2.jpodman.io.SavedPodListService.dedupe(entries);
+    }
+
+    private String resolveConfiguredPodEntry(String entry) {
+        if (entry == null || entry.isBlank()) {
+            return "";
+        }
+        String normalized = entry.trim().replace('\\', '/');
+        Path direct = PodDiscoveryService.resolveMountedPath(gameRoot, normalized);
+        if (Files.isRegularFile(direct)) {
+            return normalized;
+        }
+        String fileName = Path.of(normalized).getFileName().toString();
+        for (String prefix : List.of("Fixes/", "Stock/", "")) {
+            String candidate = prefix + fileName;
+            if (Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, candidate))) {
+                return candidate;
+            }
+        }
+        return normalized;
+    }
+
+    private String mountEntryForPodFile(Path pod) {
+        if (pod.startsWith(gameRoot)) {
+            return gameRoot.relativize(pod).toString().replace('\\', '/');
+        }
+        return pod.toString().replace('\\', '/');
     }
 
     private void sortMountedPods() {
@@ -657,6 +775,19 @@ public final class MainWindow extends JFrame {
         });
     }
 
+    private void refreshAvailableFromKnown(List<PodListItem> knownItems) {
+        List<PodListItem> refreshedKnown = mergeKnownPodItems(knownItems, allMountedItems);
+        List<PodListItem> available = new ArrayList<>();
+        for (PodListItem item : refreshedKnown) {
+            if (!containsMountPath(mountedPods.entries(), item.mountPath())) {
+                available.add(refreshedItem(item));
+            }
+        }
+        allAvailableItems = List.copyOf(available);
+        applyAvailableFilter();
+        updateCounts();
+    }
+
     private List<PodListItem> plainItems(List<String> paths) {
         List<PodListItem> items = new ArrayList<>();
         for (String path : paths) {
@@ -699,14 +830,17 @@ public final class MainWindow extends JFrame {
     private List<PodListItem> refreshDisplayLabels(List<PodListItem> items) {
         List<PodListItem> refreshed = new ArrayList<>();
         for (PodListItem item : items) {
-            String existingLabel = item.displayLabel();
-            if (existingLabel.endsWith(" [missing]")) {
-                refreshed.add(item);
-            } else {
-                refreshed.add(new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath())));
-            }
+            refreshed.add(refreshedItem(item));
         }
         return List.copyOf(refreshed);
+    }
+
+    private PodListItem refreshedItem(PodListItem item) {
+        String existingLabel = item.displayLabel();
+        if (existingLabel.endsWith(" [missing]")) {
+            return item;
+        }
+        return new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath()));
     }
 
     private String displayLabelForPath(String mountPath) {
@@ -720,12 +854,18 @@ public final class MainWindow extends JFrame {
     private boolean isSystemPod(String mountPath) {
         String normalized = normalizeMountPath(mountPath);
         String fileName = normalizeFileName(mountPath);
-        for (String systemPod : preferences.systemPodFiles()) {
+        for (String systemPod : systemPodFilesForDisplay()) {
             if (normalized.equals(normalizeMountPath(systemPod)) || fileName.equals(normalizeFileName(systemPod))) {
                 return true;
             }
         }
         return false;
+    }
+
+    private List<String> systemPodFilesForDisplay() {
+        List<String> files = new ArrayList<>(preferences.minimalSystemPodFiles());
+        files.addAll(preferences.systemPodFiles());
+        return com.mtm2.jpodman.io.SavedPodListService.dedupe(files);
     }
 
     private void applyMountedFilter() {
@@ -802,6 +942,45 @@ public final class MainWindow extends JFrame {
             }
         }
         return -1;
+    }
+
+    private List<PodListItem> mergeKnownPodItem(List<PodListItem> knownItems, PodListItem item) {
+        return mergeKnownPodItems(knownItems, List.of(item));
+    }
+
+    private List<PodListItem> mergeKnownPodItems(List<PodListItem> first, List<PodListItem> second) {
+        List<PodListItem> merged = new ArrayList<>();
+        for (PodListItem item : first == null ? List.<PodListItem>of() : first) {
+            if (!containsMountPathItem(merged, item.mountPath())) {
+                merged.add(item);
+            }
+        }
+        for (PodListItem item : second == null ? List.<PodListItem>of() : second) {
+            if (!containsMountPathItem(merged, item.mountPath())) {
+                merged.add(item);
+            }
+        }
+        return List.copyOf(merged);
+    }
+
+    private static boolean containsMountPath(List<String> entries, String mountPath) {
+        String target = normalizeMountPath(mountPath);
+        for (String entry : entries == null ? List.<String>of() : entries) {
+            if (normalizeMountPath(entry).equals(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsMountPathItem(List<PodListItem> entries, String mountPath) {
+        String target = normalizeMountPath(mountPath);
+        for (PodListItem item : entries == null ? List.<PodListItem>of() : entries) {
+            if (normalizeMountPath(item.mountPath()).equals(target)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void selectMountPath(String mountPath) {

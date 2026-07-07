@@ -38,7 +38,8 @@ public class PreferencesDialog extends JDialog {
     private final JCheckBox sortCheck = new JCheckBox("Sort mounted PODs");
     private final JCheckBox keepOnTopCheck = new JCheckBox("Keep window on top");
     private final DefaultListModel<Path> foldersModel = new DefaultListModel<>();
-    private final JTextArea systemPodsArea = new JTextArea(6, 30);
+    private final JTextArea minimalSystemPodsArea = new JTextArea(5, 30);
+    private final JTextArea systemPodsArea = new JTextArea(7, 30);
     private boolean confirmed;
     private AppPreferences preferences;
 
@@ -50,12 +51,15 @@ public class PreferencesDialog extends JDialog {
         sortCheck.setSelected(preferences.sortMountedPods());
         keepOnTopCheck.setSelected(preferences.keepWindowOnTop());
         preferences.extraPodFolders().forEach(foldersModel::addElement);
+        minimalSystemPodsArea.setText(String.join(System.lineSeparator(), preferences.minimalSystemPodFiles()));
         systemPodsArea.setText(String.join(System.lineSeparator(), preferences.systemPodFiles()));
 
         JList<Path> foldersList = new JList<>(foldersModel);
         JScrollPane foldersScroll = new JScrollPane(foldersList);
         foldersScroll.setPreferredSize(new Dimension(420, 120));
+        JScrollPane minimalSystemPodsScroll = new JScrollPane(minimalSystemPodsArea);
         JScrollPane systemPodsScroll = new JScrollPane(systemPodsArea);
+        minimalSystemPodsScroll.setPreferredSize(new Dimension(420, 100));
         systemPodsScroll.setPreferredSize(new Dimension(420, 120));
 
         JButton addFolder = new JButton("Add Folder...");
@@ -81,8 +85,8 @@ public class PreferencesDialog extends JDialog {
 
         JPanel podLimitPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         podLimitPanel.add(podLimitSpinner);
-        podLimitPanel.add(limitPresetButton("MTM1", 15));
-        podLimitPanel.add(limitPresetButton("MTM2 trial/retail", 30));
+        podLimitPanel.add(limitPresetButton("MTM1/TV/F3/HB", 15));
+        podLimitPanel.add(limitPresetButton("MTM2 trial & retail/CPR", 30));
         podLimitPanel.add(limitPresetButton("MTM2 patched", 99));
         podLimitPanel.add(limitPresetButton("Community patch", 199));
 
@@ -130,10 +134,19 @@ public class PreferencesDialog extends JDialog {
 
         c.gridy = 7;
         c.fill = GridBagConstraints.HORIZONTAL;
-        form.add(new JLabel("System POD files:"), c);
+        form.add(new JLabel("Minimal system POD files:"), c);
         c.gridy = 8;
         c.fill = GridBagConstraints.BOTH;
-        c.weighty = 0.5;
+        c.weighty = 0.35;
+        form.add(minimalSystemPodsScroll, c);
+
+        c.gridy = 9;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weighty = 0;
+        form.add(new JLabel("System POD files:"), c);
+        c.gridy = 10;
+        c.fill = GridBagConstraints.BOTH;
+        c.weighty = 0.45;
         form.add(systemPodsScroll, c);
 
         JButton ok = new JButton("Save");
@@ -181,7 +194,9 @@ public class PreferencesDialog extends JDialog {
                 sortCheck.isSelected(),
                 keepOnTopCheck.isSelected(),
                 preferences.viewMode(),
+                podFilesFromArea(minimalSystemPodsArea),
                 systemPodFiles(),
+                preferences.includeMinimalSystemPodsOnUse(),
                 preferences.savedPodLists());
         confirmed = true;
         dispose();
@@ -196,8 +211,12 @@ public class PreferencesDialog extends JDialog {
     }
 
     private List<String> systemPodFiles() {
+        return podFilesFromArea(systemPodsArea);
+    }
+
+    private List<String> podFilesFromArea(JTextArea area) {
         List<String> files = new ArrayList<>();
-        for (String line : systemPodsArea.getText().split("\\R")) {
+        for (String line : area.getText().split("\\R")) {
             if (!line.isBlank()) {
                 files.add(line.trim());
             }

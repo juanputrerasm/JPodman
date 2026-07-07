@@ -45,8 +45,8 @@ class SavedPodListServiceTest {
 
         ValidationResult result = SavedPodListService.validate(gameRoot, List.of("known.pod", "existing.pod", "missing.pod"), known);
 
-        assertEquals(List.of("known.pod"), result.existing());
-        assertEquals(List.of("existing.pod", "missing.pod"), result.missing());
+        assertEquals(List.of("known.pod", "existing.pod"), result.existing());
+        assertEquals(List.of("missing.pod"), result.missing());
     }
 
     @Test

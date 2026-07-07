@@ -9,6 +9,7 @@ import com.mtm2.jpodman.io.SavedPodListService.ValidationResult;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -17,6 +18,9 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ListSelectionModel;
+import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -42,7 +46,12 @@ public final class PodListManagerDialog extends JDialog {
     private final JList<PodListItem> editorList = new JList<>(editorModel);
     private final DefaultListModel<PodListItem> availableModel = new DefaultListModel<>();
     private final JList<PodListItem> availableList = new JList<>(availableModel);
+    private final JTextField editorFilterField = new JTextField();
+    private final JTextField availableFilterField = new JTextField();
+    private final JCheckBox includeMinimalSystemPods = new JCheckBox("Always include minimal system PODs");
     private final JLabel validationLabel = new JLabel("Select or import a POD list.");
+    private List<PodListItem> allEditorItems = List.of();
+    private List<PodListItem> allAvailableItems = List.of();
     private AppPreferences preferences;
 
     public PodListManagerDialog(MainWindow owner) {
@@ -58,9 +67,16 @@ public final class PodListManagerDialog extends JDialog {
         });
         editorList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         availableList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        includeMinimalSystemPods.setSelected(preferences.includeMinimalSystemPodsOnUse());
+        includeMinimalSystemPods.addActionListener(e -> {
+            preferences = preferences.withIncludeMinimalSystemPodsOnUse(includeMinimalSystemPods.isSelected());
+            persistPreferences();
+        });
         PodListItemRenderer renderer = new PodListItemRenderer();
         editorList.setCellRenderer(renderer);
         availableList.setCellRenderer(renderer);
+        installFilterListener(editorFilterField, this::applyEditorFilter);
+        installFilterListener(availableFilterField, this::applyAvailableFilter);
         editorList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -119,17 +135,20 @@ public final class PodListManagerDialog extends JDialog {
 
         c.gridx = 0;
         c.weightx = 0.5;
-        lists.add(listPanel("List PODs", editorList), c);
+        lists.add(listPanel("List PODs", editorList, editorFilterField, null), c);
         c.gridx = 1;
         c.weightx = 0;
         lists.add(buttonColumn(), c);
         c.gridx = 2;
         c.weightx = 0.5;
-        lists.add(listPanel("Available PODs", availableList), c);
+        lists.add(listPanel("Available PODs", availableList, availableFilterField, button("Add...", this::addPodFilesFromChooser)), c);
 
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         validationLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        footer.add(button("Add current POD files", this::addCurrentPodFiles), BorderLayout.WEST);
+        JPanel footerButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        footerButtons.add(button("Add current POD files", this::addCurrentPodFiles));
+        footerButtons.add(includeMinimalSystemPods);
+        footer.add(footerButtons, BorderLayout.WEST);
         footer.add(validationLabel, BorderLayout.CENTER);
 
         editorPanel.add(lists, BorderLayout.CENTER);
@@ -137,11 +156,19 @@ public final class PodListManagerDialog extends JDialog {
         return editorPanel;
     }
 
-    private JPanel listPanel(String title, JList<PodListItem> list) {
+    private JPanel listPanel(String title, JList<PodListItem> list, JTextField filterField, JButton extraFilterButton) {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
         panel.setBorder(BorderFactory.createTitledBorder(title));
         panel.setMinimumSize(LIST_PANEL_SIZE);
         panel.setPreferredSize(LIST_PANEL_SIZE);
+        JPanel filterPanel = new JPanel(new BorderLayout(4, 0));
+        filterPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        filterPanel.add(new JLabel("Filter:"), BorderLayout.WEST);
+        filterPanel.add(filterField, BorderLayout.CENTER);
+        if (extraFilterButton != null) {
+            filterPanel.add(extraFilterButton, BorderLayout.EAST);
+        }
+        panel.add(filterPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(list), BorderLayout.CENTER);
         return panel;
     }
@@ -201,7 +228,8 @@ public final class PodListManagerDialog extends JDialog {
     }
 
     private void loadSelectedList() {
-        editorModel.clear();
+        allEditorItems = List.of();
+        applyEditorFilter();
         SavedPodList selected = savedLists.getSelectedValue();
         if (selected == null) {
             updateValidationLabel();
@@ -212,13 +240,15 @@ public final class PodListManagerDialog extends JDialog {
     }
 
     private void reloadAvailablePodList() {
-        availableModel.clear();
         List<String> selected = currentEntries();
+        List<PodListItem> available = new ArrayList<>();
         for (PodListItem item : owner.availablePodItems()) {
             if (!containsMountPath(selected, item.mountPath())) {
-                availableModel.addElement(item);
+                available.add(item);
             }
         }
+        allAvailableItems = List.copyOf(available);
+        applyAvailableFilter();
         updateValidationLabel();
     }
 
@@ -235,32 +265,39 @@ public final class PodListManagerDialog extends JDialog {
         replaceEditorEntries(SavedPodListService.dedupe(entries));
     }
 
+    private void addPodFilesFromChooser() {
+        List<String> entries = currentEntries();
+        entries.addAll(owner.choosePodFileEntries(this));
+        replaceEditorEntries(SavedPodListService.dedupe(entries));
+    }
+
     private void removeSelectedEntries() {
-        int[] selected = editorList.getSelectedIndices();
-        if (selected.length == 0) {
+        List<PodListItem> selected = editorList.getSelectedValuesList();
+        if (selected.isEmpty()) {
             return;
         }
-        List<Integer> indices = new ArrayList<>();
-        for (int index : selected) {
-            indices.add(index);
+        List<PodListItem> updated = new ArrayList<>(allEditorItems);
+        for (PodListItem item : selected) {
+            updated.removeIf(existing -> normalize(existing.mountPath()).equals(normalize(item.mountPath())));
         }
-        indices.sort(Comparator.reverseOrder());
-        for (int index : indices) {
-            editorModel.remove(index);
-        }
+        allEditorItems = List.copyOf(updated);
+        applyEditorFilter();
         reloadAvailablePodList();
     }
 
     private void moveSelectedEntry(int direction) {
-        int index = editorList.getSelectedIndex();
+        PodListItem selected = editorList.getSelectedValue();
+        int index = selected == null ? -1 : indexOfMountPath(allEditorItems, selected.mountPath());
         int target = index + direction;
-        if (index < 0 || target < 0 || target >= editorModel.size()) {
+        if (index < 0 || target < 0 || target >= allEditorItems.size()) {
             return;
         }
-        PodListItem item = editorModel.remove(index);
-        editorModel.add(target, item);
-        editorList.setSelectedIndex(target);
-        editorList.ensureIndexIsVisible(target);
+        List<PodListItem> reordered = new ArrayList<>(allEditorItems);
+        PodListItem item = reordered.remove(index);
+        reordered.add(target, item);
+        allEditorItems = List.copyOf(reordered);
+        applyEditorFilter();
+        selectEditorMountPath(item.mountPath());
         updateValidationLabel();
     }
 
@@ -334,7 +371,8 @@ public final class PodListManagerDialog extends JDialog {
         preferences = preferences.withSavedPodLists(lists);
         persistPreferences();
         loadSavedLists();
-        editorModel.clear();
+        allEditorItems = List.of();
+        applyEditorFilter();
         reloadAvailablePodList();
     }
 
@@ -361,8 +399,9 @@ public final class PodListManagerDialog extends JDialog {
         }
         try {
             SavedPodList updated = selected.withEntries(result.existing());
-            SavedPodListService.writeExistingToPodIni(owner.gameRootPath(), result.existing(), preferences.podLimit());
-            owner.reloadGamePodIniFromDialog();
+            List<String> entriesToWrite = entriesForUse(result.existing());
+            SavedPodListService.writeExistingToPodIni(owner.gameRootPath(), entriesToWrite, preferences.podLimit());
+            owner.replaceMountedEntriesFromDialog(entriesToWrite);
             replaceSelected(updated);
             JOptionPane.showMessageDialog(this, "pod.ini was updated.", "JPodman", JOptionPane.INFORMATION_MESSAGE);
         } catch (IOException ex) {
@@ -374,23 +413,34 @@ public final class PodListManagerDialog extends JDialog {
         return SavedPodListService.validate(owner.gameRootPath(), currentEntries(), owner.knownPodItems());
     }
 
+    private List<String> entriesForUse(List<String> existingEntries) {
+        List<String> entries = new ArrayList<>();
+        if (includeMinimalSystemPods.isSelected()) {
+            entries.addAll(owner.minimalSystemPodEntriesForUse());
+        }
+        entries.addAll(existingEntries);
+        return SavedPodListService.dedupe(entries);
+    }
+
     private void updateValidationLabel() {
         ValidationResult result = validateCurrentList();
         validationLabel.setText(currentEntries().size() + " entries, " + result.missing().size() + " missing.");
     }
 
     private void replaceEditorEntries(List<String> entries) {
-        editorModel.clear();
+        List<PodListItem> items = new ArrayList<>();
         for (String entry : entries) {
-            editorModel.addElement(owner.podListItemFor(entry));
+            items.add(owner.podListItemFor(entry));
         }
+        allEditorItems = List.copyOf(items);
+        applyEditorFilter();
         reloadAvailablePodList();
     }
 
     private List<String> currentEntries() {
         List<String> entries = new ArrayList<>();
-        for (int i = 0; i < editorModel.size(); i++) {
-            entries.add(editorModel.get(i).mountPath());
+        for (PodListItem item : allEditorItems) {
+            entries.add(item.mountPath());
         }
         return entries;
     }
@@ -427,6 +477,64 @@ public final class PodListManagerDialog extends JDialog {
         for (int i = 0; i < savedListsModel.size(); i++) {
             if (savedListsModel.get(i).id().equals(id)) {
                 savedLists.setSelectedIndex(i);
+                return;
+            }
+        }
+    }
+
+    private void applyEditorFilter() {
+        applyFilter(allEditorItems, editorModel, editorFilterField.getText());
+    }
+
+    private void applyAvailableFilter() {
+        applyFilter(allAvailableItems, availableModel, availableFilterField.getText());
+    }
+
+    private void applyFilter(List<PodListItem> source, DefaultListModel<PodListItem> model, String filterText) {
+        String filter = filterText == null ? "" : filterText.trim().toLowerCase(Locale.ROOT);
+        model.clear();
+        for (PodListItem item : source) {
+            if (filter.isEmpty()
+                    || item.mountPath().toLowerCase(Locale.ROOT).contains(filter)
+                    || item.displayLabel().toLowerCase(Locale.ROOT).contains(filter)) {
+                model.addElement(item);
+            }
+        }
+    }
+
+    private void installFilterListener(JTextField field, Runnable action) {
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                action.run();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                action.run();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                action.run();
+            }
+        });
+    }
+
+    private int indexOfMountPath(List<PodListItem> items, String mountPath) {
+        for (int i = 0; i < items.size(); i++) {
+            if (normalize(items.get(i).mountPath()).equals(normalize(mountPath))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void selectEditorMountPath(String mountPath) {
+        for (int i = 0; i < editorModel.size(); i++) {
+            if (normalize(editorModel.get(i).mountPath()).equals(normalize(mountPath))) {
+                editorList.setSelectedIndex(i);
+                editorList.ensureIndexIsVisible(i);
                 return;
             }
         }

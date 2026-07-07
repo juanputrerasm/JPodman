@@ -8,6 +8,9 @@ public record GameInstall(
         Path rootFolder,
         Optional<Path> executable,
         String versionLabel,
+        String gameName,
+        Optional<Integer> executablePodLimit,
+        boolean mtmExecutable,
         Optional<MonsterVersionInfo> versionInfo,
         Optional<Integer> monsterIniPodLimit) {
     public Path podIniPath() {
@@ -23,6 +26,12 @@ public record GameInstall(
     }
 
     public Optional<Integer> warningPodLimit() {
-        return monsterIniPodLimit.or(() -> versionInfo.map(MonsterVersionInfo::suggestedPodLimit));
+        return monsterIniPodLimit
+                .or(() -> executablePodLimit)
+                .or(() -> versionInfo.map(MonsterVersionInfo::suggestedPodLimit));
+    }
+
+    public boolean hasMtmExecutable() {
+        return mtmExecutable;
     }
 }

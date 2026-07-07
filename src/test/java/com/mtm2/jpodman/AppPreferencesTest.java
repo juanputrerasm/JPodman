@@ -21,7 +21,9 @@ class AppPreferencesTest {
         assertEquals(99, preferences.podLimit());
         assertEquals(List.of(), preferences.extraPodFolders());
         assertEquals(-1, preferences.folderDepth());
+        assertEquals(AppPreferences.DEFAULT_MINIMAL_SYSTEM_POD_FILES, preferences.minimalSystemPodFiles());
         assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, preferences.systemPodFiles());
+        assertTrue(preferences.includeMinimalSystemPodsOnUse());
     }
 
     @Test
@@ -43,7 +45,9 @@ class AppPreferencesTest {
         assertEquals(2, loaded.folderDepth());
         assertTrue(loaded.sortMountedPods());
         assertTrue(loaded.keepWindowOnTop());
+        assertEquals(AppPreferences.DEFAULT_MINIMAL_SYSTEM_POD_FILES, loaded.minimalSystemPodFiles());
         assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, loaded.systemPodFiles());
+        assertTrue(loaded.includeMinimalSystemPodsOnUse());
     }
 
     @Test
@@ -70,6 +74,25 @@ class AppPreferencesTest {
                 """);
 
         assertEquals(List.of(), loaded.savedPodLists());
+        assertEquals(AppPreferences.DEFAULT_MINIMAL_SYSTEM_POD_FILES, loaded.minimalSystemPodFiles());
+        assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, loaded.systemPodFiles());
+    }
+
+    @Test
+    void migratesOldSystemPodsIntoMinimalSystemPods() {
+        AppPreferences loaded = AppPreferences.parse("""
+                {
+                  "podLimit": 99,
+                  "extraPodFolders": [],
+                  "folderDepth": -1,
+                  "sortMountedPods": false,
+                  "keepWindowOnTop": false,
+                  "viewMode": "dualList",
+                  "systemPodFiles": ["ui.pod", "truck2.pod"]
+                }
+                """);
+
+        assertEquals(List.of("ui.pod", "truck2.pod"), loaded.minimalSystemPodFiles());
         assertEquals(AppPreferences.DEFAULT_SYSTEM_POD_FILES, loaded.systemPodFiles());
     }
 
@@ -91,18 +114,26 @@ class AppPreferencesTest {
     @Test
     void savesAndLoadsSystemPodFiles() throws IOException {
         Path file = tempDir.resolve("preferences.json");
-        AppPreferences preferences = AppPreferences.defaults().withSystemPodFiles(List.of("ui.pod", "UI.POD", "Fixes/truck2.pod"));
+        AppPreferences preferences = AppPreferences.defaults()
+                .withMinimalSystemPodFiles(List.of("startup.pod", "STARTUP.POD"))
+                .withSystemPodFiles(List.of("ui.pod", "UI.POD", "Fixes/truck2.pod"))
+                .withIncludeMinimalSystemPodsOnUse(false);
 
         preferences.save(file);
         AppPreferences loaded = AppPreferences.load(file);
 
+        assertEquals(List.of("startup.pod"), loaded.minimalSystemPodFiles());
         assertEquals(List.of("ui.pod", "Fixes/truck2.pod"), loaded.systemPodFiles());
+        assertEquals(false, loaded.includeMinimalSystemPodsOnUse());
     }
 
     @Test
     void allowsEmptySystemPodFiles() {
-        AppPreferences preferences = AppPreferences.defaults().withSystemPodFiles(List.of());
+        AppPreferences preferences = AppPreferences.defaults()
+                .withMinimalSystemPodFiles(List.of())
+                .withSystemPodFiles(List.of());
 
+        assertEquals(List.of(), preferences.minimalSystemPodFiles());
         assertEquals(List.of(), preferences.systemPodFiles());
     }
 

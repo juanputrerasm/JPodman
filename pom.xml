@@ -5,9 +5,9 @@
 
   <groupId>com.mtm2</groupId>
   <artifactId>jpodman</artifactId>
-  <version>1.0.2</version>
+  <version>1.0.3</version>
   <name>JPodman</name>
-  <description>Java POD mounting utility for Monster Truck Madness 1 2</description>
+  <description>POD mounting utility for TRI games</description>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>

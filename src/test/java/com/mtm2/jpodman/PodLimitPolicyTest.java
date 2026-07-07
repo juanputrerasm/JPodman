@@ -20,6 +20,8 @@ class PodLimitPolicyTest {
         GameInstall install = MonsterExeDetector.detect(tempDir);
 
         assertFalse(install.canLaunch());
+        assertEquals("Generic POD game", install.versionLabel());
+        assertFalse(install.warningPodLimit().isPresent());
         assertEquals(AppPreferences.DEFAULT_POD_LIMIT, AppPreferences.defaults().podLimit());
     }
 
@@ -35,11 +37,14 @@ class PodLimitPolicyTest {
         AppPreferences preferences = AppPreferences.defaults().withPodLimit(99);
 
         assertEquals("Unknown monster.exe", install.versionLabel());
+        assertEquals("Monster Truck Madness", install.gameName());
+        assertEquals(true, install.hasMtmExecutable());
         assertEquals(99, preferences.podLimit());
     }
 
     @Test
     void readsMonsterIniPodLimitAsWarningOnly() throws IOException {
+        Files.writeString(tempDir.resolve("monster.exe"), "");
         Path system = tempDir.resolve("system");
         Files.createDirectories(system);
         Files.writeString(system.resolve("monster.ini"), "[Game]\npodLimit=199\n");
@@ -57,5 +62,61 @@ class PodLimitPolicyTest {
         GameInstall install = MonsterExeDetector.detect(tempDir);
 
         assertFalse(install.monsterIniPodLimit().isPresent());
+    }
+
+    @Test
+    void detectsKnownPodGameExecutablesCaseInsensitively() throws IOException {
+        Files.writeString(tempDir.resolve("tv.exe"), "");
+
+        GameInstall install = MonsterExeDetector.detect(tempDir);
+
+        assertEquals("Terminal Velocity", install.versionLabel());
+        assertEquals("Terminal Velocity", install.gameName());
+        assertEquals(15, install.warningPodLimit().orElseThrow());
+        assertFalse(install.hasMtmExecutable());
+    }
+
+    @Test
+    void detectsCprWithThirtyPodLimit() throws IOException {
+        Files.writeString(tempDir.resolve("cart.exe"), "");
+
+        GameInstall install = MonsterExeDetector.detect(tempDir);
+
+        assertEquals("CPR", install.versionLabel());
+        assertEquals(30, install.warningPodLimit().orElseThrow());
+    }
+
+    @Test
+    void unknownLimitKnownGamesHaveNoWarningLimit() throws IOException {
+        Files.writeString(tempDir.resolve("4x42.exe"), "");
+
+        GameInstall install = MonsterExeDetector.detect(tempDir);
+
+        assertEquals("4x4 Evo 2", install.versionLabel());
+        assertFalse(install.warningPodLimit().isPresent());
+    }
+
+    @Test
+    void detectsAllConfiguredNonMtmExecutables() throws IOException {
+        assertDetectedGame("FURY3.EXE", "Fury3", 15);
+        assertDetectedGame("HELLBEND.EXE", "Hellbender", 15);
+        assertDetectedGame("nocturne.exe", "Nocturne", null);
+        assertDetectedGame("4x4.exe", "4x4 Evo", null);
+    }
+
+    private void assertDetectedGame(String executableName, String gameName, Integer podLimit) throws IOException {
+        Path folder = Files.createDirectory(tempDir.resolve(executableName.replace('.', '_')));
+        Files.writeString(folder.resolve(executableName), "");
+
+        GameInstall install = MonsterExeDetector.detect(folder);
+
+        assertEquals(gameName, install.versionLabel());
+        assertEquals(gameName, install.gameName());
+        assertFalse(install.hasMtmExecutable());
+        if (podLimit == null) {
+            assertFalse(install.warningPodLimit().isPresent());
+        } else {
+            assertEquals(podLimit, install.warningPodLimit().orElseThrow());
+        }
     }
 }
