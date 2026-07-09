@@ -31,8 +31,7 @@ public final class PodDiscoveryService {
     public static boolean isAcceptablePodPath(String path) {
         return path != null
                 && !path.isBlank()
-                && path.toLowerCase(Locale.ROOT).endsWith(".pod")
-                && !path.contains(" ");
+                && path.toLowerCase(Locale.ROOT).endsWith(".pod");
     }
 
     public static Path resolveMountedPath(Path gameRoot, String entry) {

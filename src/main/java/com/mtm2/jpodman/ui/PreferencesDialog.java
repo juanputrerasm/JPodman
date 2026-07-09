@@ -161,9 +161,10 @@ public class PreferencesDialog extends JDialog {
         add(form, BorderLayout.CENTER);
         add(buttons, BorderLayout.SOUTH);
         pack();
-        setSize(new Dimension(760, Math.max(getHeight(), 520)));
-        setMinimumSize(getSize());
-        setResizable(false);
+        Dimension packed = getSize();
+        setSize(new Dimension(Math.max(packed.width, 900), Math.max(packed.height, 560)));
+        setMinimumSize(new Dimension(760, 520));
+        setResizable(true);
         setLocationRelativeTo(owner);
     }
 

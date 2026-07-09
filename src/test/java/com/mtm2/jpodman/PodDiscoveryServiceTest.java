@@ -33,7 +33,7 @@ class PodDiscoveryServiceTest {
     }
 
     @Test
-    void filtersSpacesAndAlreadyMountedPods() throws IOException {
+    void allowsSpacesAndFiltersAlreadyMountedPods() throws IOException {
         Path gameRoot = tempDir.resolve("game");
         Files.createDirectories(gameRoot);
         Files.writeString(gameRoot.resolve("startup.pod"), "");
@@ -42,8 +42,21 @@ class PodDiscoveryServiceTest {
 
         List<String> discovered = PodDiscoveryService.discover(gameRoot, List.of(), -1, mounted);
 
-        assertEquals(List.of(), discovered);
-        assertFalse(PodDiscoveryService.isAcceptablePodPath("bad name.pod"));
+        assertEquals(List.of("bad name.pod"), discovered);
+        assertTrue(PodDiscoveryService.isAcceptablePodPath("bad name.pod"));
+    }
+
+    @Test
+    void discoversExternalPodsFromFoldersWithSpaces() throws IOException {
+        Path gameRoot = tempDir.resolve("game");
+        Path extra = tempDir.resolve("Monster Truck Madness").resolve("system");
+        Files.createDirectories(gameRoot);
+        Files.createDirectories(extra);
+        Files.writeString(extra.resolve("addon.pod"), "");
+
+        List<String> discovered = PodDiscoveryService.discover(gameRoot, List.of(extra), -1, PodMountList.empty());
+
+        assertEquals(List.of(extra.resolve("addon.pod").toAbsolutePath().normalize().toString().replace('\\', '/')), discovered);
     }
 
     @Test
