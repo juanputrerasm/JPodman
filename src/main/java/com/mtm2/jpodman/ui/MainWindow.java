@@ -12,6 +12,8 @@ import com.mtm2.jpodman.io.PodIniReader;
 import com.mtm2.jpodman.io.PodIniWriter;
 import com.mtm2.jpodman.io.PodListExporter;
 import com.mtm2.jpodman.io.PodMetadataService;
+import com.mtm2.jpodman.io.PodResourceConflictService;
+import com.mtm2.jpodman.io.PodResourceConflictService.ConflictResult;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -60,6 +62,7 @@ public final class MainWindow extends JFrame {
     private GameInstall gameInstall = MonsterExeDetector.detect(gameRoot);
     private PodMountList mountedPods = PodMountList.empty();
     private final PodMetadataService metadataService = new PodMetadataService();
+    private final PodResourceConflictService conflictService = new PodResourceConflictService();
 
     private final DefaultListModel<PodListItem> mountedModel = new DefaultListModel<>();
     private final DefaultListModel<PodListItem> availableModel = new DefaultListModel<>();
@@ -469,7 +472,7 @@ public final class MainWindow extends JFrame {
     }
 
     List<PodListItem> mountedPodItems() {
-        return refreshDisplayLabels(allMountedItems);
+        return refreshMountedDisplayLabels(allMountedItems);
     }
 
     List<PodListItem> availablePodItems() {
@@ -477,15 +480,23 @@ public final class MainWindow extends JFrame {
     }
 
     PodListItem podListItemFor(String mountPath) {
+        return podListItemFor(mountPath, List.of());
+    }
+
+    PodListItem podListItemFor(String mountPath, List<String> conflicts) {
         for (PodListItem item : knownPodItems()) {
             if (normalizeMountPath(item.mountPath()).equals(normalizeMountPath(mountPath))) {
-                return new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath()));
+                return new PodListItem(item.mountPath(), displayLabelForPath(item.mountPath(), conflicts));
             }
         }
         if (Files.isRegularFile(PodDiscoveryService.resolveMountedPath(gameRoot, mountPath))) {
-            return new PodListItem(mountPath, displayLabelForPath(mountPath));
+            return new PodListItem(mountPath, displayLabelForPath(mountPath, conflicts));
         }
         return new PodListItem(mountPath, PodDisplayNameResolver.missingLabel(mountPath));
+    }
+
+    ConflictResult conflictResultForEntries(List<String> entries) {
+        return conflictService.detect(gameRoot, entries, metadataService);
     }
 
     void updatePreferencesFromDialog(AppPreferences updated) throws IOException {
@@ -585,6 +596,8 @@ public final class MainWindow extends JFrame {
 
     void refreshAvailablePods() {
         syncModelToMounted();
+        allMountedItems = refreshMountedDisplayLabels(allMountedItems);
+        applyMountedFilter();
         List<String> discovered = PodDiscoveryService.discover(gameRoot, preferences.extraPodFolders(), preferences.folderDepth(), mountedPods);
         setAvailableItemsFromPaths(discovered);
         updateCounts();
@@ -760,7 +773,7 @@ public final class MainWindow extends JFrame {
     private void setMountedItemsFromPaths(List<String> paths) {
         allMountedItems = plainItems(paths);
         applyMountedFilter();
-        decorateItems(allMountedItems, items -> {
+        decorateMountedItems(allMountedItems, items -> {
             allMountedItems = items;
             applyMountedFilter();
         });
@@ -820,11 +833,56 @@ public final class MainWindow extends JFrame {
         }.execute();
     }
 
+    private void decorateMountedItems(List<PodListItem> source, java.util.function.Consumer<List<PodListItem>> onDone) {
+        List<PodListItem> snapshot = List.copyOf(source);
+        new SwingWorker<List<PodListItem>, Void>() {
+            @Override
+            protected List<PodListItem> doInBackground() {
+                PodResourceConflictService.ConflictResult conflicts =
+                        conflictService.detect(gameRoot, mountPaths(snapshot), metadataService);
+                List<PodListItem> decorated = new ArrayList<>(snapshot.size());
+                for (PodListItem item : snapshot) {
+                    decorated.add(new PodListItem(
+                            item.mountPath(),
+                            displayLabelForPath(item.mountPath(), conflicts.conflictsFor(item.mountPath()))));
+                }
+                return decorated;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<PodListItem> decorated = get();
+                    onDone.accept(List.copyOf(decorated));
+                } catch (Exception ignored) {
+                    // Plain labels are already visible; metadata is best effort.
+                }
+            }
+        }.execute();
+    }
+
     private void refreshDisplayedPodLabels() {
-        allMountedItems = refreshDisplayLabels(allMountedItems);
+        allMountedItems = refreshMountedDisplayLabels(allMountedItems);
         allAvailableItems = refreshDisplayLabels(allAvailableItems);
         applyMountedFilter();
         applyAvailableFilter();
+    }
+
+    private List<PodListItem> refreshMountedDisplayLabels(List<PodListItem> items) {
+        List<String> mountPaths = mountPaths(items);
+        PodResourceConflictService.ConflictResult conflicts = conflictService.detect(gameRoot, mountPaths, metadataService);
+        List<PodListItem> refreshed = new ArrayList<>();
+        for (PodListItem item : items) {
+            String existingLabel = item.displayLabel();
+            if (existingLabel.endsWith(" [missing]")) {
+                refreshed.add(item);
+            } else {
+                refreshed.add(new PodListItem(
+                        item.mountPath(),
+                        displayLabelForPath(item.mountPath(), conflicts.conflictsFor(item.mountPath()))));
+            }
+        }
+        return List.copyOf(refreshed);
     }
 
     private List<PodListItem> refreshDisplayLabels(List<PodListItem> items) {
@@ -833,6 +891,14 @@ public final class MainWindow extends JFrame {
             refreshed.add(refreshedItem(item));
         }
         return List.copyOf(refreshed);
+    }
+
+    private List<String> mountPaths(List<PodListItem> items) {
+        List<String> paths = new ArrayList<>();
+        for (PodListItem item : items == null ? List.<PodListItem>of() : items) {
+            paths.add(item.mountPath());
+        }
+        return List.copyOf(paths);
     }
 
     private PodListItem refreshedItem(PodListItem item) {
@@ -844,11 +910,16 @@ public final class MainWindow extends JFrame {
     }
 
     private String displayLabelForPath(String mountPath) {
+        return displayLabelForPath(mountPath, List.of());
+    }
+
+    private String displayLabelForPath(String mountPath, List<String> conflicts) {
         Path podPath = PodDiscoveryService.resolveMountedPath(gameRoot, mountPath);
         return PodDisplayNameResolver.displayLabel(
                 mountPath,
                 metadataService.metadataFor(podPath),
-                isSystemPod(mountPath));
+                isSystemPod(mountPath),
+                conflicts);
     }
 
     private boolean isSystemPod(String mountPath) {

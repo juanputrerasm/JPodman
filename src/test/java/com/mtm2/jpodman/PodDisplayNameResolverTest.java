@@ -40,6 +40,36 @@ class PodDisplayNameResolverTest {
     }
 
     @Test
+    void formatsSingleConflictBeforeDetectedMetadata() {
+        assertEquals("Track.pod [Conflict: DEMO.SIT; Track:Demo Track]",
+                PodDisplayNameResolver.displayLabel(
+                        "Track.pod",
+                        new PodMetadata(List.of("Demo Track"), List.of()),
+                        false,
+                        List.of("DEMO.SIT")));
+    }
+
+    @Test
+    void formatsAllConflictsWithoutCompactingToCounts() {
+        assertEquals("Mixed.pod [Conflicts: A.SIT, B.SIT, C.TRK, D.TRK; Tracks:5]",
+                PodDisplayNameResolver.displayLabel(
+                        "Mixed.pod",
+                        new PodMetadata(List.of("A", "B", "C", "D", "E"), List.of()),
+                        false,
+                        List.of("A.SIT", "B.SIT", "C.TRK", "D.TRK")));
+    }
+
+    @Test
+    void formatsSystemBeforeConflict() {
+        assertEquals("truck2.pod [System; Conflict: BIGFOOT.TRK; Trucks:4]",
+                PodDisplayNameResolver.displayLabel(
+                        "truck2.pod",
+                        new PodMetadata(List.of(), List.of("A", "B", "C", "D")),
+                        true,
+                        List.of("BIGFOOT.TRK")));
+    }
+
+    @Test
     void formatsMissingPods() {
         assertEquals("Missing1.pod [missing]", PodDisplayNameResolver.missingLabel("Missing1.pod"));
     }

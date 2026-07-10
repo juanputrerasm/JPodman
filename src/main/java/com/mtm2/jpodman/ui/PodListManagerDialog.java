@@ -5,6 +5,7 @@ import com.mtm2.jpodman.PodListItem;
 import com.mtm2.jpodman.SavedPodList;
 import com.mtm2.jpodman.io.SavedPodListService;
 import com.mtm2.jpodman.io.SavedPodListService.ValidationResult;
+import com.mtm2.jpodman.io.PodResourceConflictService.ConflictResult;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -254,6 +255,7 @@ public final class PodListManagerDialog extends JDialog {
 
     private void refreshAvailablePods() {
         owner.refreshAvailablePods();
+        refreshEditorConflictLabels();
         reloadAvailablePodList();
     }
 
@@ -281,7 +283,7 @@ public final class PodListManagerDialog extends JDialog {
             updated.removeIf(existing -> normalize(existing.mountPath()).equals(normalize(item.mountPath())));
         }
         allEditorItems = List.copyOf(updated);
-        applyEditorFilter();
+        refreshEditorConflictLabels();
         reloadAvailablePodList();
     }
 
@@ -400,6 +402,14 @@ public final class PodListManagerDialog extends JDialog {
         try {
             SavedPodList updated = selected.withEntries(result.existing());
             List<String> entriesToWrite = entriesForUse(result.existing());
+            ConflictResult conflicts = owner.conflictResultForEntries(entriesToWrite);
+            if (conflicts.hasConflicts()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "The following SIT/TRK files have name conflicts:\n" + conflicts.warningText(),
+                        "POD Resource Conflicts",
+                        JOptionPane.WARNING_MESSAGE);
+            }
             SavedPodListService.writeExistingToPodIni(owner.gameRootPath(), entriesToWrite, preferences.podLimit());
             owner.replaceMountedEntriesFromDialog(entriesToWrite);
             replaceSelected(updated);
@@ -424,17 +434,36 @@ public final class PodListManagerDialog extends JDialog {
 
     private void updateValidationLabel() {
         ValidationResult result = validateCurrentList();
-        validationLabel.setText(currentEntries().size() + " entries, " + result.missing().size() + " missing.");
+        ConflictResult conflicts = owner.conflictResultForEntries(result.existing());
+        validationLabel.setText(currentEntries().size()
+                + " entries, "
+                + result.missing().size()
+                + " missing, "
+                + conflicts.conflictCount()
+                + " conflicts.");
     }
 
     private void replaceEditorEntries(List<String> entries) {
+        ConflictResult conflicts = owner.conflictResultForEntries(entries);
         List<PodListItem> items = new ArrayList<>();
         for (String entry : entries) {
-            items.add(owner.podListItemFor(entry));
+            items.add(owner.podListItemFor(entry, conflicts.conflictsFor(entry)));
         }
         allEditorItems = List.copyOf(items);
         applyEditorFilter();
         reloadAvailablePodList();
+    }
+
+    private void refreshEditorConflictLabels() {
+        List<String> entries = currentEntries();
+        ConflictResult conflicts = owner.conflictResultForEntries(entries);
+        List<PodListItem> items = new ArrayList<>();
+        for (String entry : entries) {
+            items.add(owner.podListItemFor(entry, conflicts.conflictsFor(entry)));
+        }
+        allEditorItems = List.copyOf(items);
+        applyEditorFilter();
+        updateValidationLabel();
     }
 
     private List<String> currentEntries() {

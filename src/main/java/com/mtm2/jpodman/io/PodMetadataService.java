@@ -51,14 +51,18 @@ public final class PodMetadataService {
     private PodMetadata readMetadata(Path podPath) throws IOException {
         PodArchive archive = reader.read(podPath);
         List<String> tracks = new ArrayList<>();
+        List<String> trackResourceTitles = new ArrayList<>();
         for (PodArchive.Entry entry : archive.getEntriesByExtension(".sit")) {
             tracks.add(SitTrackNameParser.displayName(archive.getEntryBytes(entry), entry.name()));
+            trackResourceTitles.add(entry.title());
         }
         List<String> trucks = new ArrayList<>();
+        List<String> truckResourceTitles = new ArrayList<>();
         for (PodArchive.Entry entry : archive.getEntriesByExtension(".trk")) {
             trucks.add(TrkTruckNameParser.displayName(archive.getEntryBytes(entry), entry.name()));
+            truckResourceTitles.add(entry.title());
         }
-        return new PodMetadata(tracks, trucks);
+        return new PodMetadata(tracks, trucks, trackResourceTitles, truckResourceTitles);
     }
 
     private record CacheEntry(long size, FileTime modified, PodMetadata metadata) {}

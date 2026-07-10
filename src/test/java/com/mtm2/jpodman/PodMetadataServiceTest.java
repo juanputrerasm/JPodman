@@ -1,6 +1,7 @@
 package com.mtm2.jpodman;
 
 import com.mtm2.jpodman.io.PodMetadataService;
+import com.mtm2.jpodman.io.PodDisplayNameResolver.PodMetadata;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,6 +29,19 @@ class PodMetadataServiceTest {
         String label = new PodMetadataService().displayLabel(tempDir, "Combo.pod");
 
         assertEquals("Combo.pod [Track:Laguna Seca; Truck:Bigfoot 15]", label);
+    }
+
+    @Test
+    void exposesSitAndTrkResourceTitles() throws IOException {
+        Path pod = tempDir.resolve("Combo.pod");
+        writePod(pod, List.of(
+                entry("WORLD/LAGUNA.SIT", "x\n!Race Track Name\nLaguna Seca\n"),
+                entry("TRUCK/BIGFOOT.TRK", "truckName\nBigfoot 15\n")));
+
+        PodMetadata metadata = new PodMetadataService().metadataFor(pod);
+
+        assertEquals(List.of("LAGUNA.SIT"), metadata.trackResourceTitles());
+        assertEquals(List.of("BIGFOOT.TRK"), metadata.truckResourceTitles());
     }
 
     @Test

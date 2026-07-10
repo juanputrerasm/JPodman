@@ -5,7 +5,7 @@
 
   <groupId>com.mtm2</groupId>
   <artifactId>jpodman</artifactId>
-  <version>1.0.3b</version>
+  <version>1.0.3c</version>
   <name>JPodman</name>
   <description>POD mounting utility for TRI games</description>
 

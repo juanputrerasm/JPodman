@@ -17,6 +17,7 @@ final class PodListItemRenderer extends DefaultListCellRenderer {
     private static final Color SYSTEM_COLOR = new Color(80, 150, 95);
     private static final Color TRACK_COLOR = new Color(80, 170, 255);
     private static final Color TRUCK_COLOR = new Color(255, 120, 120);
+    private static final Color CONFLICT_COLOR = new Color(220, 150, 45);
     private static final Color MISSING_COLOR = new Color(210, 70, 70);
     private static final Color FALLBACK_METADATA_COLOR = new Color(150, 150, 150);
 
@@ -79,6 +80,9 @@ final class PodListItemRenderer extends DefaultListCellRenderer {
         }
         if (lower.equals("missing")) {
             return MISSING_COLOR;
+        }
+        if (lower.startsWith("conflict")) {
+            return CONFLICT_COLOR;
         }
         if (lower.startsWith("track")) {
             return TRACK_COLOR;
