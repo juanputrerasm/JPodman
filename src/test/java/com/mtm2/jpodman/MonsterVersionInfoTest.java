@@ -31,6 +31,32 @@ class MonsterVersionInfoTest {
     }
 
     @Test
+    void classifiesCommunityPatch2AsTheOlderLimit() {
+        // Community patch 2 reports exactly 2.0.50.0 and keeps the 199 limit.
+        MonsterVersionInfo info = MonsterVersionInfo.fromProductVersion("2.0.50.0").orElseThrow();
+
+        assertEquals("Community patch", info.label());
+        assertEquals(199, info.suggestedPodLimit());
+    }
+
+    @Test
+    void classifiesCommunityPatch3AsFourNinetyNine() {
+        // Community patch 3 beta reports 2.0.50.1 and raises the ceiling to 499.
+        MonsterVersionInfo info = MonsterVersionInfo.fromProductVersion("2.0.50.1").orElseThrow();
+
+        assertEquals("Community patch 3", info.label());
+        assertEquals(499, info.suggestedPodLimit());
+    }
+
+    @Test
+    void classifiesLaterCommunityPatch3Builds() {
+        MonsterVersionInfo info = MonsterVersionInfo.fromProductVersion("2.0.51.0").orElseThrow();
+
+        assertEquals("Community patch 3", info.label());
+        assertEquals(499, info.suggestedPodLimit());
+    }
+
+    @Test
     void classifiesMtm2PatchedVersion() {
         MonsterVersionInfo info = MonsterVersionInfo.fromProductVersion("2.0.42.0").orElseThrow();
 

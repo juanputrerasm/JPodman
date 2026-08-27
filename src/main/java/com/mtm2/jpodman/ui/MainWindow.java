@@ -37,7 +37,6 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
-import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
@@ -393,7 +392,12 @@ public final class MainWindow extends JFrame {
             return;
         }
         try {
-            Desktop.getDesktop().open(gameInstall.executable().get().toFile());
+            // These games resolve their data files relative to the working
+            // directory, so start them in the game folder. Desktop.open() left
+            // the working directory to the shell.
+            new ProcessBuilder(gameInstall.executable().get().toString())
+                    .directory(gameRoot.toFile())
+                    .start();
         } catch (IOException | UnsupportedOperationException ex) {
             JOptionPane.showMessageDialog(this, "The game could not be launched:\n" + ex.getMessage(), "JPodman", JOptionPane.WARNING_MESSAGE);
         }

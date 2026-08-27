@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 /** Line-preserving reader/writer for the Monster.ini keys JPodman edits. */
 public final class MonsterIniService {
@@ -21,8 +22,9 @@ public final class MonsterIniService {
         if (monsterIni == null || !Files.isRegularFile(monsterIni)) {
             return MonsterIniSettings.defaults();
         }
-        Map<String, String> fonts = readSection(Files.readAllLines(monsterIni, StandardCharsets.UTF_8), "Fonts");
-        Map<String, String> game = readSection(Files.readAllLines(monsterIni, StandardCharsets.UTF_8), "Game");
+        List<String> lines = Files.readAllLines(monsterIni, StandardCharsets.UTF_8);
+        Map<String, String> fonts = readSection(lines, "Fonts");
+        Map<String, String> game = readSection(lines, "Game");
         List<FontSetting> settings = new ArrayList<>();
         for (FontSetting defaultFont : MonsterIniSettings.defaultFonts()) {
             String suffix = defaultFont.suffix();
@@ -80,7 +82,10 @@ public final class MonsterIniService {
     }
 
     private static Map<String, String> readSection(List<String> lines, String section) {
-        Map<String, String> values = new LinkedHashMap<>();
+        // Case-insensitive to match updateSection's findKey: otherwise a key
+        // spelled differently in the file reads as absent, so the dialog shows a
+        // default that it then writes back over the user's real value.
+        Map<String, String> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         boolean inSection = false;
         for (String line : lines) {
             String trimmed = line.trim();

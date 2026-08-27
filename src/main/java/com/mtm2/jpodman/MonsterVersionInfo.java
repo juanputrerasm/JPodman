@@ -8,6 +8,13 @@ import java.util.Optional;
 public record MonsterVersionInfo(String productVersion, String label, int suggestedPodLimit) {
     private static final VersionNumber MTM2_RETAIL = VersionNumber.parse("2.0.41.0").orElseThrow();
     private static final VersionNumber MTM2_PATCHED = VersionNumber.parse("2.0.42.0").orElseThrow();
+    /**
+     * Community patch 3 raises the ceiling to 499. The threshold is 2.0.50.1 and
+     * not 2.0.50.0, because community patch 2 reports exactly 2.0.50.0 and must
+     * keep the older 199 limit. The comparison is "or greater" so later builds
+     * are covered; it is still in beta and the final version is not settled.
+     */
+    private static final VersionNumber COMMUNITY_PATCH_3 = VersionNumber.parse("2.0.50.1").orElseThrow();
 
     public static Optional<MonsterVersionInfo> fromProductVersion(String productVersion) {
         Optional<VersionNumber> parsed = VersionNumber.parse(productVersion);
@@ -26,6 +33,9 @@ public record MonsterVersionInfo(String productVersion, String label, int sugges
         }
         if (version.compareTo(MTM2_PATCHED) == 0) {
             return Optional.of(new MonsterVersionInfo(productVersion, "MTM2 patched", 99));
+        }
+        if (version.compareTo(COMMUNITY_PATCH_3) >= 0) {
+            return Optional.of(new MonsterVersionInfo(productVersion, "Community patch 3", 499));
         }
         return Optional.of(new MonsterVersionInfo(productVersion, "Community patch", 199));
     }

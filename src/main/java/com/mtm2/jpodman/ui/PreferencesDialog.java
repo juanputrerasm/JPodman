@@ -89,6 +89,7 @@ public class PreferencesDialog extends JDialog {
         podLimitPanel.add(limitPresetButton("MTM2 trial & retail/CPR", 30));
         podLimitPanel.add(limitPresetButton("MTM2 patched", 99));
         podLimitPanel.add(limitPresetButton("Community patch", 199));
+        podLimitPanel.add(limitPresetButton("CommPatch 3", 499));
 
         JPanel form = new JPanel(new GridBagLayout());
         form.setBorder(BorderFactory.createEmptyBorder(12, 12, 8, 12));
