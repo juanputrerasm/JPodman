@@ -15,8 +15,10 @@ you set the mount order, then saves and launches the game.
 
 > [!TIP]
 > On Windows, [KPodman](https://github.com/juanputrerasm/KPodman) is the same
-> program built as a native application, with no Java needed. The two share the
-> same `pod.ini` and preferences formats, so you can switch between them freely.
+> program built as a native application. It needs no Java and nothing else
+> installed, since it runs on the .NET Framework already included in Windows.
+> The two share the same `pod.ini` and preferences formats, so you can switch
+> between them freely.
 
 ---
 
