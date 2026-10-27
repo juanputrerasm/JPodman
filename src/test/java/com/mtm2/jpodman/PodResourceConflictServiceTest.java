@@ -21,6 +21,40 @@ class PodResourceConflictServiceTest {
     Path tempDir;
 
     @Test
+    void detectsSi2ConflictsAcrossPods() throws IOException {
+        writePod(tempDir.resolve("one.pod"), List.of(entry("WORLD/DEMO.SI2")));
+        writePod(tempDir.resolve("two.pod"), List.of(entry("TRACKS/DEMO.si2")));
+
+        ConflictResult result = detect("one.pod", "two.pod");
+
+        assertEquals(List.of("DEMO.SI2"), result.conflictsFor("one.pod"));
+        assertEquals(List.of("DEMO.SI2"), result.conflictsFor("two.pod"));
+        assertEquals(List.of("DEMO.SI2"), result.conflictingResourceTitles());
+    }
+
+    @Test
+    void si2ConflictsWithTheSitOfTheSameStemBecauseCommunityPatch3PlaysTheSi2() throws IOException {
+        writePod(tempDir.resolve("hd.pod"), List.of(entry("WORLD/DEMO.SI2")));
+        writePod(tempDir.resolve("legacy.pod"), List.of(entry("WORLD/DEMO.SIT")));
+        writePod(tempDir.resolve("other.pod"), List.of(entry("WORLD/OTHER.SIT")));
+
+        ConflictResult result = detect("hd.pod", "legacy.pod", "other.pod");
+
+        assertEquals(List.of("DEMO.SI2"), result.conflictsFor("hd.pod"));
+        assertEquals(List.of("DEMO.SIT"), result.conflictsFor("legacy.pod"));
+        assertEquals(List.of(), result.conflictsFor("other.pod"));
+        assertEquals(List.of("DEMO.SI2 / DEMO.SIT"), result.conflictingResourceTitles());
+        assertEquals(1, result.conflictCount());
+    }
+
+    @Test
+    void podShippingBothSitAndSi2OfOneStemDoesNotConflictWithItself() throws IOException {
+        writePod(tempDir.resolve("dual.pod"), List.of(entry("WORLD/DEMO.SIT"), entry("WORLD/DEMO.SI2")));
+
+        assertFalse(detect("dual.pod").hasConflicts());
+    }
+
+    @Test
     void detectsSameSitTitleInDifferentPodsIgnoringFolders() throws IOException {
         writePod(tempDir.resolve("one.pod"), List.of(entry("WORLD/DEMO.SIT")));
         writePod(tempDir.resolve("two.pod"), List.of(entry("TRACKS/DEMO.SIT")));

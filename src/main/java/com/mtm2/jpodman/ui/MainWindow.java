@@ -5,6 +5,7 @@ import com.mtm2.jpodman.GameInstall;
 import com.mtm2.jpodman.MonsterVersionInfo;
 import com.mtm2.jpodman.PodListItem;
 import com.mtm2.jpodman.PodMountList;
+import com.mtm2.jpodman.SystemPodPolicy;
 import com.mtm2.jpodman.io.MonsterExeDetector;
 import com.mtm2.jpodman.io.PodDiscoveryService;
 import com.mtm2.jpodman.io.PodDisplayNameResolver;
@@ -695,18 +696,22 @@ public final class MainWindow extends JFrame {
 
     List<String> minimalSystemPodEntriesForUse() {
         List<String> entries = new ArrayList<>();
-        for (String entry : preferences.minimalSystemPodFiles()) {
+        for (String entry : activeSystemPods().minimalFiles()) {
             entries.add(resolveConfiguredPodEntry(entry));
         }
         return com.mtm2.jpodman.io.SavedPodListService.dedupe(entries);
     }
 
+    /** The active game's system PODs: the Evo stock set, or the configured MTM/default lists. */
     private List<String> stockEntries(boolean minimal) {
-        List<String> entries = new ArrayList<>(preferences.minimalSystemPodFiles());
-        if (!minimal) {
-            entries.addAll(preferences.systemPodFiles());
-        }
-        return com.mtm2.jpodman.io.SavedPodListService.dedupe(entries);
+        SystemPodPolicy.SystemPodSet systemPods = activeSystemPods();
+        return minimal
+                ? com.mtm2.jpodman.io.SavedPodListService.dedupe(systemPods.minimalFiles())
+                : systemPods.allFiles();
+    }
+
+    private SystemPodPolicy.SystemPodSet activeSystemPods() {
+        return SystemPodPolicy.forInstall(gameInstall, preferences);
     }
 
     private String resolveConfiguredPodEntry(String entry) {
@@ -938,9 +943,7 @@ public final class MainWindow extends JFrame {
     }
 
     private List<String> systemPodFilesForDisplay() {
-        List<String> files = new ArrayList<>(preferences.minimalSystemPodFiles());
-        files.addAll(preferences.systemPodFiles());
-        return com.mtm2.jpodman.io.SavedPodListService.dedupe(files);
+        return activeSystemPods().allFiles();
     }
 
     private void applyMountedFilter() {

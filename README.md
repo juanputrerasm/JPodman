@@ -34,11 +34,15 @@ Detected automatically from the executable in the game folder:
 | Hellbender | `HELLBEND.EXE` | 15 |
 | CPR | `cart.exe` | 30 |
 | Nocturne | `nocturne.exe` | none |
-| 4x4 Evo / 4x4 Evo 2 | `4x4.exe`, `4x42.exe` | none |
+| 4x4 Evo / 4x4 Evo 2 | `4x4.exe`, `4x42.exe` | 99 |
 
 Monster Truck Madness has three extras the others do not: executable version
 detection, the `system/monster.ini` editor, and registry repair. Those menu
 items are disabled in a non-MTM folder.
+
+The detected game also selects its system-POD profile. Non-Evo and generic folders
+use the lists configured in Preferences. Evo 1 and Evo 2 use `STARTUP.POD`,
+`AI.POD`, `MUSIC.POD`, `TRUCK.POD`, `driver.pod`, `sound.pod`, and `UI.POD`.
 
 ---
 
@@ -47,9 +51,14 @@ items are disabled in a non-MTM folder.
 - **Two-list editor.** Mounted PODs on the left, everything available on the
   right. Add, remove, and reorder; the mount order is what gets written.
 - **Reads inside your PODs.** Parses POD1, POD2 and EPD archives and shows the
-  track and truck names each one contains, colour-coded in the list.
-- **Conflict detection.** Flags PODs that define the same `.SIT`/`.TRK` file,
-  since only the last one mounted actually wins.
+  track and truck names each one contains, colour-coded in the list: MTM and
+  Evo 1/2 `.SIT` tracks, Community Patch 3 `.SI2` tracks, and MTM1, MTM2 and
+  Community Patch MTM2.1 `.TRK` trucks. A POD carrying both a `.SIT` and a
+  `.SI2` of one track lists it once, under the `.SI2` name.
+- **Conflict detection.** Flags PODs that define the same `.SIT`/`.SI2`/`.TRK` file,
+  since only one of them is used in game. A `.SI2` also clashes with a `.SIT` of
+  the same name in another POD, because Community Patch 3 plays the `.SI2` in its
+  place.
 - **System POD tagging.** The PODs the game needs are marked, and the list is
   editable in Preferences.
 - **Live filtering** on every list, plus an **Add...** button for POD files
@@ -143,13 +152,13 @@ Build named POD setups without touching the game until you are ready.
 
 | Setting | Default | Notes |
 |---|---|---|
-| POD limit | 99 | 1-999. Presets: MTM1/TV/F3/HB 15, MTM2 trial & retail/CPR 30, MTM2 patched 99, community patch 199, CommPatch 3 499 |
+| POD limit | 99 | 1-999. Presets: MTM1/TV/F3/HB 15, MTM2 trial & retail/CPR 30, MTM2 patched/Evo 1/Evo 2 99, community patch 199, CommPatch 3 499 |
 | Folder depth | -1 | How deep to scan. `-1` is unlimited, `0` is the game folder only |
 | Extra POD folders | none | Scanned as well; their PODs are mounted by absolute path |
 | Sort mounted PODs | off | Sort case-insensitively after a preferences change |
 | Keep window on top | off | |
-| Minimal system POD files | 7 entries | The PODs the game cannot run without |
-| System POD files | 13 entries | The remaining stock content PODs |
+| Minimal system POD files | 7 entries | Configurable MTM/default profile; Evo uses its detected-game profile |
+| System POD files | 13 entries | Remaining configurable MTM/default stock content PODs |
 
 Preferences and saved POD lists live in one JSON file:
 

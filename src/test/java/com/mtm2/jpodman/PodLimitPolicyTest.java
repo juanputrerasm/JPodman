@@ -88,12 +88,37 @@ class PodLimitPolicyTest {
 
     @Test
     void unknownLimitKnownGamesHaveNoWarningLimit() throws IOException {
-        Files.writeString(tempDir.resolve("4x42.exe"), "");
+        Files.writeString(tempDir.resolve("nocturne.exe"), "");
 
         GameInstall install = MonsterExeDetector.detect(tempDir);
 
-        assertEquals("4x4 Evo 2", install.versionLabel());
+        assertEquals("Nocturne", install.versionLabel());
+        assertEquals(GameKind.NOCTURNE, install.game());
         assertFalse(install.warningPodLimit().isPresent());
+    }
+
+    @Test
+    void detectsEvoGamesInThePodIniFolderWithNinetyNinePodLimit() throws IOException {
+        assertDetectedEvo("4x4.exe", "4x4 Evo", GameKind.EVO1);
+        assertDetectedEvo("4X42.EXE", "4x4 Evo 2", GameKind.EVO2);
+    }
+
+    @Test
+    void genericFolderHasGenericGameKind() {
+        assertEquals(GameKind.GENERIC, MonsterExeDetector.detect(tempDir).game());
+    }
+
+    private void assertDetectedEvo(String executableName, String gameName, GameKind game) throws IOException {
+        Path folder = Files.createDirectory(tempDir.resolve(executableName.replace('.', '_')));
+        Files.write(folder.resolve(executableName), new byte[] {0x4D, 0x5A});
+
+        GameInstall install = MonsterExeDetector.detect(folder);
+
+        assertEquals(game, install.game());
+        assertEquals(gameName, install.gameName());
+        assertEquals(99, install.warningPodLimit().orElseThrow());
+        assertEquals(folder.resolve("pod.ini"), install.podIniPath());
+        assertFalse(install.hasMtmExecutable());
     }
 
     @Test
@@ -101,7 +126,7 @@ class PodLimitPolicyTest {
         assertDetectedGame("FURY3.EXE", "Fury3", 15);
         assertDetectedGame("HELLBEND.EXE", "Hellbender", 15);
         assertDetectedGame("nocturne.exe", "Nocturne", null);
-        assertDetectedGame("4x4.exe", "4x4 Evo", null);
+        assertDetectedGame("4x4.exe", "4x4 Evo", 99);
     }
 
     private void assertDetectedGame(String executableName, String gameName, Integer podLimit) throws IOException {

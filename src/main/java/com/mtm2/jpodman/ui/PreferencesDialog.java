@@ -87,7 +87,7 @@ public class PreferencesDialog extends JDialog {
         podLimitPanel.add(podLimitSpinner);
         podLimitPanel.add(limitPresetButton("MTM1/TV/F3/HB", 15));
         podLimitPanel.add(limitPresetButton("MTM2 trial & retail/CPR", 30));
-        podLimitPanel.add(limitPresetButton("MTM2 patched", 99));
+        podLimitPanel.add(limitPresetButton("MTM2 patched/Evo", 99));
         podLimitPanel.add(limitPresetButton("Community patch", 199));
         podLimitPanel.add(limitPresetButton("CommPatch 3", 499));
 
@@ -135,7 +135,7 @@ public class PreferencesDialog extends JDialog {
 
         c.gridy = 7;
         c.fill = GridBagConstraints.HORIZONTAL;
-        form.add(new JLabel("Minimal system POD files:"), c);
+        form.add(new JLabel("MTM/default minimal system POD files:"), c);
         c.gridy = 8;
         c.fill = GridBagConstraints.BOTH;
         c.weighty = 0.35;
@@ -144,7 +144,7 @@ public class PreferencesDialog extends JDialog {
         c.gridy = 9;
         c.fill = GridBagConstraints.HORIZONTAL;
         c.weighty = 0;
-        form.add(new JLabel("System POD files:"), c);
+        form.add(new JLabel("MTM/default additional system POD files:"), c);
         c.gridy = 10;
         c.fill = GridBagConstraints.BOTH;
         c.weighty = 0.45;

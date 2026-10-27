@@ -4,8 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
 
-/** Extracts display names from MTM SIT track files. */
+/** Extracts display names from MTM and Evo .SIT/.SI2 track files. */
 public final class SitTrackNameParser {
+    private static final String TRACK_NAME_LABEL = "Race Track Name";
     private static final byte[] TRAXXV1 = "TRAXXV1".getBytes(StandardCharsets.ISO_8859_1);
     private static final byte[] TRAXXV2 = "TRAXXV2".getBytes(StandardCharsets.ISO_8859_1);
 
@@ -18,14 +19,29 @@ public final class SitTrackNameParser {
                 .replace('\r', '\n');
         String[] lines = text.split("\n");
         for (int i = 0; i < lines.length - 1; i++) {
-            if ("!Race Track Name".equals(lines[i].trim())) {
+            if (TRACK_NAME_LABEL.equals(normalizedLabel(lines[i]))) {
                 String name = lines[i + 1].trim();
                 if (!name.isEmpty()) {
                     return name;
                 }
             }
         }
-        return titleWithoutExtension(entryName, ".SIT");
+        String extension = TrackScriptNames.isSi2(entryName) ? TrackScriptNames.SI2_EXTENSION : TrackScriptNames.SIT_EXTENSION;
+        return titleWithoutExtension(entryName, extension);
+    }
+
+    /**
+     * Evo label lines may use any combination of the decorative sigils used by
+     * Terminal Reality's text formats. This is the same normalization rule as
+     * OpenPhotex's Evo readers.
+     */
+    private static String normalizedLabel(String line) {
+        String label = line.trim();
+        int start = 0;
+        while (start < label.length() && "!@#$%&".indexOf(label.charAt(start)) >= 0) {
+            start++;
+        }
+        return label.substring(start).trim();
     }
 
     static byte[] stripTraxxTail(byte[] bytes) {

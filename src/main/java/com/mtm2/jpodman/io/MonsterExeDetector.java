@@ -1,6 +1,7 @@
 package com.mtm2.jpodman.io;
 
 import com.mtm2.jpodman.GameInstall;
+import com.mtm2.jpodman.GameKind;
 import com.mtm2.jpodman.MonsterVersionInfo;
 
 import java.io.IOException;
@@ -44,6 +45,7 @@ public final class MonsterExeDetector {
                         : value.descriptor().gameName())
                 .orElse("Generic POD game");
         String gameName = detected.map(value -> value.descriptor().gameName()).orElse("Generic POD game");
+        GameKind game = detected.map(value -> value.descriptor().game()).orElse(GameKind.GENERIC);
         Optional<Integer> executablePodLimit = detected.flatMap(value -> value.descriptor().podLimit());
         boolean mtmExecutable = detected.map(value -> value.descriptor().mtm()).orElse(false);
         return new GameInstall(
@@ -51,6 +53,7 @@ public final class MonsterExeDetector {
                 executable,
                 version,
                 gameName,
+                game,
                 executablePodLimit,
                 mtmExecutable,
                 versionInfo,
@@ -131,15 +134,15 @@ public final class MonsterExeDetector {
 
     private static Map<String, ExecutableDescriptor> executableDescriptors() {
         Map<String, ExecutableDescriptor> descriptors = new LinkedHashMap<>();
-        add(descriptors, new ExecutableDescriptor("monster.exe", "Monster Truck Madness", Optional.empty(), true));
-        add(descriptors, new ExecutableDescriptor("monsterx.exe", "Monster Truck Madness", Optional.empty(), true));
-        add(descriptors, new ExecutableDescriptor("TV.EXE", "Terminal Velocity", Optional.of(15), false));
-        add(descriptors, new ExecutableDescriptor("FURY3.EXE", "Fury3", Optional.of(15), false));
-        add(descriptors, new ExecutableDescriptor("HELLBEND.EXE", "Hellbender", Optional.of(15), false));
-        add(descriptors, new ExecutableDescriptor("cart.exe", "CPR", Optional.of(30), false));
-        add(descriptors, new ExecutableDescriptor("nocturne.exe", "Nocturne", Optional.empty(), false));
-        add(descriptors, new ExecutableDescriptor("4x4.exe", "4x4 Evo", Optional.empty(), false));
-        add(descriptors, new ExecutableDescriptor("4x42.exe", "4x4 Evo 2", Optional.empty(), false));
+        add(descriptors, new ExecutableDescriptor("monster.exe", "Monster Truck Madness", GameKind.MONSTER_TRUCK_MADNESS, Optional.empty(), true));
+        add(descriptors, new ExecutableDescriptor("monsterx.exe", "Monster Truck Madness", GameKind.MONSTER_TRUCK_MADNESS, Optional.empty(), true));
+        add(descriptors, new ExecutableDescriptor("TV.EXE", "Terminal Velocity", GameKind.TERMINAL_VELOCITY, Optional.of(15), false));
+        add(descriptors, new ExecutableDescriptor("FURY3.EXE", "Fury3", GameKind.FURY3, Optional.of(15), false));
+        add(descriptors, new ExecutableDescriptor("HELLBEND.EXE", "Hellbender", GameKind.HELLBENDER, Optional.of(15), false));
+        add(descriptors, new ExecutableDescriptor("cart.exe", "CPR", GameKind.CPR, Optional.of(30), false));
+        add(descriptors, new ExecutableDescriptor("nocturne.exe", "Nocturne", GameKind.NOCTURNE, Optional.empty(), false));
+        add(descriptors, new ExecutableDescriptor("4x4.exe", "4x4 Evo", GameKind.EVO1, Optional.of(99), false));
+        add(descriptors, new ExecutableDescriptor("4x42.exe", "4x4 Evo 2", GameKind.EVO2, Optional.of(99), false));
         return Collections.unmodifiableMap(descriptors);
     }
 
@@ -147,7 +150,8 @@ public final class MonsterExeDetector {
         descriptors.put(descriptor.fileName().toLowerCase(Locale.ROOT), descriptor);
     }
 
-    private record ExecutableDescriptor(String fileName, String gameName, Optional<Integer> podLimit, boolean mtm) {}
+    private record ExecutableDescriptor(
+            String fileName, String gameName, GameKind game, Optional<Integer> podLimit, boolean mtm) {}
 
     private record DetectedExecutable(Path path, ExecutableDescriptor descriptor) {}
 }

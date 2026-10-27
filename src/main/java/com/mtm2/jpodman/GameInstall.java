@@ -9,6 +9,7 @@ public record GameInstall(
         Optional<Path> executable,
         String versionLabel,
         String gameName,
+        GameKind game,
         Optional<Integer> executablePodLimit,
         boolean mtmExecutable,
         Optional<MonsterVersionInfo> versionInfo,

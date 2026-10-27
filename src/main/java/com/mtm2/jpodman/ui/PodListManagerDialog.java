@@ -406,7 +406,7 @@ public final class PodListManagerDialog extends JDialog {
             if (conflicts.hasConflicts()) {
                 JOptionPane.showMessageDialog(
                         this,
-                        "The following SIT/TRK files have name conflicts:\n" + conflicts.warningText(),
+                        "The following SIT/SI2/TRK files have name conflicts:\n" + conflicts.warningText(),
                         "POD Resource Conflicts",
                         JOptionPane.WARNING_MESSAGE);
             }

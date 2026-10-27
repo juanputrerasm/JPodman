@@ -19,6 +19,12 @@ class TrkTruckNameParserTest {
     }
 
     @Test
+    void extractsCommunityPatchMtm21TruckNameLabel() {
+        assertEquals("Grave Digger HD", TrkTruckNameParser.displayName(
+                bytes("MTM2.1 truckName\r\nGrave Digger HD\r\ntruckModelBaseName\r\ngravedig\r\n"), "TRUCK/GRAVEDIG.TRK"));
+    }
+
+    @Test
     void extractsMtm2HeaderPositionalName() {
         assertEquals("Snake Bite", TrkTruckNameParser.displayName(bytes("MTM2.1\nSnake Bite\ntruckModelBaseName\n"), "TRUCK/SNAKE.TRK"));
     }

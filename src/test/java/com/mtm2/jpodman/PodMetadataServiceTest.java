@@ -45,6 +45,41 @@ class PodMetadataServiceTest {
     }
 
     @Test
+    void readsSi2TrackMetadataAndExposesItsResourceTitle() throws IOException {
+        Path pod = tempDir.resolve("HDTrack.pod");
+        writePod(pod, List.of(entry("WORLD/HIGHRES.SI2", "x\n!Race Track Name\nHigh Resolution\n")));
+
+        PodMetadataService service = new PodMetadataService();
+        PodMetadata metadata = service.metadataFor(pod);
+
+        assertEquals(List.of("High Resolution"), metadata.tracks());
+        assertEquals(List.of("HIGHRES.SI2"), metadata.trackResourceTitles());
+        assertEquals("HDTrack.pod [Track:High Resolution]", service.displayLabel(tempDir, "HDTrack.pod"));
+    }
+
+    @Test
+    void sitAndSi2OfOneStemAreOneTrackNamedByTheSi2() throws IOException {
+        Path pod = tempDir.resolve("dual.pod");
+        writePod(pod, List.of(
+                entry("WORLD/DEMO.SIT", "x\n!Race Track Name\nDemo Classic\n"),
+                entry("WORLD/DEMO.SI2", "x\n!Race Track Name\nDemo HD\n"),
+                entry("WORLD/OTHER.SIT", "x\n!Race Track Name\nOther\n")));
+
+        PodMetadata metadata = new PodMetadataService().metadataFor(pod);
+
+        assertEquals(List.of("Demo HD", "Other"), metadata.tracks());
+        assertEquals(List.of("DEMO.SIT", "DEMO.SI2", "OTHER.SIT"), metadata.trackResourceTitles());
+    }
+
+    @Test
+    void readsMtm21TruckNamesFromPod() throws IOException {
+        Path pod = tempDir.resolve("hdtruck.pod");
+        writePod(pod, List.of(entry("TRUCK/GRAVEDIG.TRK", "MTM2.1 truckName\nGrave Digger HD\ntruckModelBaseName\ngravedig\n")));
+
+        assertEquals("hdtruck.pod [Truck:Grave Digger HD]", new PodMetadataService().displayLabel(tempDir, "hdtruck.pod"));
+    }
+
+    @Test
     void invalidPodFallsBackToPlainLabel() throws IOException {
         Path pod = tempDir.resolve("bad.pod");
         Files.writeString(pod, "not a pod");

@@ -6,17 +6,23 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
-/** Detects duplicate SIT/TRK resource titles across a POD mount list. */
+/** Detects duplicate SIT/SI2/TRK resource titles across a POD mount list. */
 public final class PodResourceConflictService {
+    /**
+     * A resource counts as conflicting when two different PODs define it. Repeats inside
+     * a single POD are ignored, and resources with different extensions do not collide
+     * because the extension is part of the name. The exception is .SIT and .SI2:
+     * Community Patch 3 plays a .SI2 in place of the .SIT with the same stem, so they collide.
+     */
     public ConflictResult detect(Path gameRoot, List<String> mountPaths, PodMetadataService metadataService) {
-        Map<String, String> displayTitleByKey = new LinkedHashMap<>();
-        Map<String, Set<String>> podKeysByResource = new LinkedHashMap<>();
+        // Resource key -> the PODs defining it, each with the file names it used for it.
+        Map<String, Map<String, Set<String>>> podsByResource = new LinkedHashMap<>();
         Map<String, String> displayMountPathByKey = new LinkedHashMap<>();
 
         for (String mountPath : mountPaths == null ? List.<String>of() : mountPaths) {
@@ -27,44 +33,43 @@ public final class PodResourceConflictService {
             displayMountPathByKey.putIfAbsent(podKey, mountPath);
             Path podPath = PodDiscoveryService.resolveMountedPath(gameRoot, mountPath);
             PodMetadata metadata = metadataService.metadataFor(podPath);
-            Set<String> titlesInPod = new LinkedHashSet<>();
             for (String title : metadata.resourceTitles()) {
                 if (title == null || title.isBlank()) {
                     continue;
                 }
-                String resourceKey = title.trim().toUpperCase(Locale.ROOT);
-                if (titlesInPod.add(resourceKey)) {
-                    displayTitleByKey.putIfAbsent(resourceKey, title.trim().toUpperCase(Locale.ROOT));
-                    podKeysByResource.computeIfAbsent(resourceKey, ignored -> new LinkedHashSet<>()).add(podKey);
-                }
+                podsByResource
+                        .computeIfAbsent(TrackScriptNames.resourceKey(title), ignored -> new LinkedHashMap<>())
+                        .computeIfAbsent(podKey, ignored -> new TreeSet<>())
+                        .add(title.trim().toUpperCase(Locale.ROOT));
             }
         }
 
         Map<String, List<String>> conflictsByPod = new LinkedHashMap<>();
-        Set<String> conflictingResourceTitles = new LinkedHashSet<>();
-        for (Map.Entry<String, Set<String>> entry : podKeysByResource.entrySet()) {
-            if (entry.getValue().size() < 2) {
+        List<String> conflictingResourceTitles = new ArrayList<>();
+        for (Map<String, Set<String>> pods : podsByResource.values()) {
+            if (pods.size() < 2) {
                 continue;
             }
-            String title = displayTitleByKey.get(entry.getKey());
-            conflictingResourceTitles.add(title);
-            for (String podKey : entry.getValue()) {
-                conflictsByPod.computeIfAbsent(podKey, ignored -> new ArrayList<>()).add(title);
+            // One entry per clashing resource; DEMO.SI2 against DEMO.SIT reads "DEMO.SI2 / DEMO.SIT".
+            Set<String> allTitles = new TreeSet<>();
+            pods.values().forEach(allTitles::addAll);
+            conflictingResourceTitles.add(String.join(" / ", allTitles));
+            for (Map.Entry<String, Set<String>> pod : pods.entrySet()) {
+                conflictsByPod.computeIfAbsent(pod.getKey(), ignored -> new ArrayList<>()).addAll(pod.getValue());
             }
         }
 
         Map<String, List<String>> sortedConflicts = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : displayMountPathByKey.entrySet()) {
-            List<String> conflicts = conflictsByPod.get(entry.getKey());
+        for (String podKey : displayMountPathByKey.keySet()) {
+            List<String> conflicts = conflictsByPod.get(podKey);
             if (conflicts == null || conflicts.isEmpty()) {
                 continue;
             }
             conflicts.sort(String.CASE_INSENSITIVE_ORDER);
-            sortedConflicts.put(entry.getKey(), List.copyOf(conflicts));
+            sortedConflicts.put(podKey, List.copyOf(conflicts));
         }
-        List<String> sortedResourceTitles = new ArrayList<>(conflictingResourceTitles);
-        sortedResourceTitles.sort(String.CASE_INSENSITIVE_ORDER);
-        return new ConflictResult(sortedConflicts, List.copyOf(sortedResourceTitles));
+        conflictingResourceTitles.sort(String.CASE_INSENSITIVE_ORDER);
+        return new ConflictResult(sortedConflicts, List.copyOf(conflictingResourceTitles));
     }
 
     private static String normalize(String value) {
